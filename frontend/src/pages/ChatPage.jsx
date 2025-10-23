@@ -7,6 +7,7 @@ import ChatsList from "../components/ChatsList";
 import ContactList from "../components/ContactList";
 import ChatContainer from "../components/ChatContainer";
 import NoConversationPlaceholder from "../components/NoConversationPlaceholder";
+import GroupList from "../components/GroupList";
 
 function ChatPage() {
   const { activeTab, selectedUser } = useChatStore();
@@ -17,10 +18,6 @@ function ChatPage() {
         <div className="w-96 bg-white backdrop-blur-sm flex flex-col">
           <ProfileHeader />
           <ActiveTabSwitch />
-
-          {/* <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {activeTab === "chats" ? <ChatsList /> : <ContactList />}
-          </div> */}
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {activeTab === "chats" ? (

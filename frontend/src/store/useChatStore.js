@@ -7,6 +7,10 @@ export const useChatStore = create((set, get) => ({
   allContacts: [],
   chats: [],
   messages: [],
+  groups: [],
+  selectedGroup: null,
+  isGroupsLoading: false,
+
   activeTab: "chats",
   selectedUser: null,
   isUsersLoading: false,
@@ -20,6 +24,8 @@ export const useChatStore = create((set, get) => ({
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedUser: (selectedUser) => set({ selectedUser }),
+  setSelectedGroup: (selectedGroup) => set({ selectedGroup }),
+
 
   getAllContacts: async () => {
     set({ isUsersLoading: true });
@@ -43,6 +49,24 @@ export const useChatStore = create((set, get) => ({
       set({ isUsersLoading: false });
     }
   },
+
+  getMyGroups: async () => {
+    set({ isGroupsLoading: true });
+    try {
+      const mockGroups = [
+        { _id: "1", groupName: "Frontend Team" },
+        { _id: "2", groupName: "Drama Cast" },
+      ];
+      // ถ้ามี API จริง: const res = await axiosInstance.get("/groups/my");
+      // set({ groups: res.data });
+      set({ groups: mockGroups });
+    } catch (error) {
+      console.error("getMyGroups error:", error);
+    } finally {
+      set({ isGroupsLoading: false });
+    }
+  },
+
 
   getMessagesByUserId: async (userId) => {
     set({ isMessagesLoading: true });

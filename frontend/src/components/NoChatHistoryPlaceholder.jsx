@@ -3,10 +3,10 @@ import { MessageCircleIcon } from "lucide-react";
 const NoChatHistoryPlaceholder = ({ name }) => {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-6">
-      <div className="w-16 h-16 bg-gradient-to-br from-cyan-500/20 to-cyan-400/10 rounded-full flex items-center justify-center mb-5">
-        <MessageCircleIcon className="size-8 text-cyan-400" />
+      <div className="w-16 h-16 bg-gradient-to-br from-[#8A522E] to-[#8A522E] rounded-full flex items-center justify-center mb-5">
+        <MessageCircleIcon className="size-8 text-white" />
       </div>
-      <h3 className="text-lg font-medium text-slate-200 mb-3">
+      <h3 className="text-lg font-medium text-black mb-3">
         Start your conversation with {name}
       </h3>
       <div className="flex flex-col space-y-3 max-w-md mb-5">
