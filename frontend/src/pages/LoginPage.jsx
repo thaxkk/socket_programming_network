@@ -3,6 +3,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import BorderAnimatedContainer from "../components/BorderAnimatedContainer";
 import { MessageCircleIcon, MailIcon, LoaderIcon, LockIcon } from "lucide-react";
 import { Link } from "react-router";
+import logo from "../pictures/coconutka.svg";
 
 function LoginPage() {
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -14,17 +15,14 @@ function LoginPage() {
   };
 
   return (
-    <div className="w-full flex items-center justify-center p-4 bg-slate-900">
-      <div className="relative w-full max-w-6xl md:h-[800px] h-[650px]">
-        <BorderAnimatedContainer>
-          <div className="w-full flex flex-col md:flex-row">
+    <div className="w-full flex items-center justify-center p-4 bg-[#f5deb3]">
+      <div className="relative w-full max-w-6xl md:h-[800px] h-[650px] flex items-center justify-center">
             {/* FORM CLOUMN - LEFT SIDE */}
-            <div className="md:w-1/2 p-8 flex items-center justify-center md:border-r border-slate-600/30">
-              <div className="w-full max-w-md">
+              <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg">
                 {/* HEADING TEXT */}
                 <div className="text-center mb-8">
-                  <MessageCircleIcon className="w-12 h-12 mx-auto text-slate-400 mb-4" />
-                  <h2 className="text-2xl font-bold text-slate-200 mb-2">Welcome Back</h2>
+                  <img src={logo} alt="CoCoChat logo" className="w-16 h-16 mx-auto mb-4" />
+                  <h2 className="text-2xl font-bold text-black mb-2">CoCoChat</h2>
                   <p className="text-slate-400">Login to access to your account</p>
                 </div>
 
@@ -41,7 +39,7 @@ function LoginPage() {
                         value={formData.email}
                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                         className="input"
-                        placeholder="johndoe@gmail.com"
+                        placeholder="Coco@gmail.com"
                       />
                     </div>
                   </div>
@@ -78,10 +76,10 @@ function LoginPage() {
                   </Link>
                 </div>
               </div>
-            </div>
+            
 
             {/* FORM ILLUSTRATION - RIGHT SIDE */}
-            <div className="hidden md:w-1/2 md:flex items-center justify-center p-6 bg-gradient-to-bl from-slate-800/20 to-transparent">
+            {/* <div className="hidden md:w-1/2 md:flex items-center justify-center p-6 bg-gradient-to-bl from-slate-800/20 to-transparent">
               <div>
                 <img
                   src="/login.png"
@@ -98,9 +96,9 @@ function LoginPage() {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </BorderAnimatedContainer>
+            </div> */}
+          {/* </div> */}
+        {/* </BorderAnimatedContainer> */}
       </div>
     </div>
   );
