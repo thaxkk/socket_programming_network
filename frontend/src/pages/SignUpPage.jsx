@@ -16,7 +16,7 @@ function SignUpPage() {
 
   return (
     <div className="w-full flex items-center justify-center p-4 bg-[#f5deb3]">
-      <div className="relative w-full max-w-6xl md:h-[800px] h-[650px] flex items-center justify-center">
+      <div className="relative w-full max-w-6xl md:h-[700px] h-[650px] flex items-center justify-center">
             {/* FORM CLOUMN - LEFT SIDE */}
               <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg">
                 {/* HEADING TEXT */}

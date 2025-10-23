@@ -44,3 +44,27 @@
   background-size: 200% 200%;
   animation: gradient 8s ease infinite;
 }
+
+@keyframes fall {
+  0% {
+    opacity: 0;
+    transform: translateY(0) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.emoji-fall {
+  animation: fall 3.5s ease-in forwards;
+  font-size: 2rem;
+  position: absolute;
+  will-change: transform, opacity;
+}
+
+
+
