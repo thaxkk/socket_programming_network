@@ -67,22 +67,50 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-
-  getMessagesByUserId: async (userId) => {
+  // ✅ CHANGED: Using Socket.IO instead of HTTP
+  getMessagesByUserId: (userId) => {
     set({ isMessagesLoading: true });
-    try {
-      const res = await axiosInstance.get(`/messages/${userId}`);
-      set({ messages: res.data });
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Something went wrong");
-    } finally {
+    const socket = useAuthStore.getState().socket;
+
+    if (!socket) {
+      toast.error("Socket connection not available");
       set({ isMessagesLoading: false });
+      return;
     }
+
+    // Emit request to get messages
+    socket.emit("getMessages", { userId });
+
+    // Listen for response (one-time listener)
+    socket.once("messagesHistory", (data) => {
+      if (data.error) {
+        toast.error(data.error);
+        set({ messages: [] });
+      } else {
+        set({ messages: data.messages || [] });
+      }
+      set({ isMessagesLoading: false });
+    });
+
+    // Handle timeout
+    setTimeout(() => {
+      if (get().isMessagesLoading) {
+        set({ isMessagesLoading: false });
+        toast.error("Failed to load messages");
+      }
+    }, 10000);
   },
 
-  sendMessage: async (messageData) => {
+  // ✅ CHANGED: Using Socket.IO instead of HTTP
+  sendMessage: (messageData) => {
     const { selectedUser, messages } = get();
     const { authUser } = useAuthStore.getState();
+    const socket = useAuthStore.getState().socket;
+
+    if (!socket) {
+      toast.error("Socket connection not available");
+      return;
+    }
 
     const tempId = `temp-${Date.now()}`;
 
@@ -93,19 +121,43 @@ export const useChatStore = create((set, get) => ({
       text: messageData.text,
       image: messageData.image,
       createdAt: new Date().toISOString(),
-      isOptimistic: true, // flag to identify optimistic messages (optional)
+      isOptimistic: true,
     };
-    // immidetaly update the ui by adding the message
+
+    // Immediately update UI
     set({ messages: [...messages, optimisticMessage] });
 
-    try {
-      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set({ messages: messages.concat(res.data) });
-    } catch (error) {
-      // remove optimistic message on failure
-      set({ messages: messages });
-      toast.error(error.response?.data?.message || "Something went wrong");
-    }
+    // Emit message via socket
+    socket.emit("sendMessage", {
+      receiverId: selectedUser._id,
+      text: messageData.text,
+      image: messageData.image,
+    });
+
+    // Listen for confirmation (one-time listener)
+    socket.once("messageSent", (data) => {
+      if (data.error) {
+        // Remove optimistic message on failure
+        set({ messages: messages.filter((msg) => msg._id !== tempId) });
+        toast.error(data.error);
+      } else {
+        // Replace optimistic message with real one
+        set({
+          messages: messages
+            .filter((msg) => msg._id !== tempId)
+            .concat(data.message),
+        });
+      }
+    });
+
+    // Handle timeout
+    setTimeout(() => {
+      const currentMessages = get().messages;
+      if (currentMessages.some((msg) => msg._id === tempId)) {
+        set({ messages: messages.filter((msg) => msg._id !== tempId) });
+        toast.error("Failed to send message");
+      }
+    }, 10000);
   },
 
   subscribeToMessages: () => {

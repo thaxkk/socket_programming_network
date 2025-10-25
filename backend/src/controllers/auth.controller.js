@@ -23,6 +23,11 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: "Invalid email format" });
     }
 
+    const existingName = await User.findOne({ fullName });
+    if (existingName) {
+      return res.status(400).json({ message: "This name is already taken" });
+    }
+
     const user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: "Email already exists" });
 
