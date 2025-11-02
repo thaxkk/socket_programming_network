@@ -1,108 +1,143 @@
+import Message from "../models/message.model.js";
+import Group from "../models/group.model.js";
+import GroupMemberActivity from "../models/groupMemberActivity.model.js";
+import User from "../models/user.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
-import Message from "../models/Message.js";
-import User from "../models/User.js";
 
-export const getAllContacts = async (req, res) => {
-  try {
-    const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
+// ... (keep existing functions: getUsersForSidebar, getMessages, sendMessage)
 
-    res.status(200).json(filteredUsers);
-  } catch (error) {
-    console.log("Error in getAllContacts:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-export const getMessagesByUserId = async (req, res) => {
-  try {
-    const myId = req.user._id;
-    const { id: userToChatId } = req.params;
-
-    const messages = await Message.find({
-      $or: [
-        { senderId: myId, receiverId: userToChatId },
-        { senderId: userToChatId, receiverId: myId },
-      ],
-    });
-
-    res.status(200).json(messages);
-  } catch (error) {
-    console.log("Error in getMessages controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-export const sendMessage = async (req, res) => {
+// Send message to group
+export const sendGroupMessage = async (req, res) => {
   try {
     const { text, image } = req.body;
-    const { id: receiverId } = req.params;
+    const { groupId } = req.params;
     const senderId = req.user._id;
 
-    if (!text && !image) {
-      return res.status(400).json({ message: "Text or image is required." });
+    // Verify group exists
+    const group = await Group.findById(groupId).populate(
+      "members",
+      "_id fullName profilePic"
+    );
+
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
     }
-    if (senderId.equals(receiverId)) {
-      return res.status(400).json({ message: "Cannot send messages to yourself." });
-    }
-    const receiverExists = await User.exists({ _id: receiverId });
-    if (!receiverExists) {
-      return res.status(404).json({ message: "Receiver not found." });
+
+    // Check if sender is a member
+    if (!group.members.some((member) => member._id.toString() === senderId.toString())) {
+      return res
+        .status(403)
+        .json({ message: "You are not a member of this group" });
     }
 
     let imageUrl;
     if (image) {
-      // upload base64 image to cloudinary
+      // Upload base64 image to cloudinary
       const uploadResponse = await cloudinary.uploader.upload(image);
       imageUrl = uploadResponse.secure_url;
     }
 
     const newMessage = new Message({
       senderId,
-      receiverId,
+      groupId,
       text,
       image: imageUrl,
+      readBy: [{ userId: senderId }], // Sender has read the message
     });
 
     await newMessage.save();
 
-    const receiverSocketId = getReceiverSocketId(receiverId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("newMessage", newMessage);
-    }
+    // Update group's last message
+    group.lastMessage = newMessage._id;
+    await group.save();
+
+    // Populate sender info
+    await newMessage.populate("senderId", "fullName profilePic");
+
+    // Emit to all group members who are online
+    group.members.forEach((member) => {
+      const receiverSocketId = getReceiverSocketId(member._id);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("new_group_message", {
+          message: newMessage,
+          groupId,
+        });
+      }
+    });
 
     res.status(201).json(newMessage);
   } catch (error) {
-    console.log("Error in sendMessage controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error in sendGroupMessage controller:", error.message);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
-export const getChatPartners = async (req, res) => {
+// Get group messages
+export const getGroupMessages = async (req, res) => {
   try {
-    const loggedInUserId = req.user._id;
+    const { groupId } = req.params;
+    const userId = req.user._id;
 
-    // find all the messages where the logged-in user is either sender or receiver
-    const messages = await Message.find({
-      $or: [{ senderId: loggedInUserId }, { receiverId: loggedInUserId }],
-    });
+    // Verify group exists and user is a member
+    const group = await Group.findById(groupId);
 
-    const chatPartnerIds = [
-      ...new Set(
-        messages.map((msg) =>
-          msg.senderId.toString() === loggedInUserId.toString()
-            ? msg.receiverId.toString()
-            : msg.senderId.toString()
-        )
-      ),
-    ];
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
 
-    const chatPartners = await User.find({ _id: { $in: chatPartnerIds } }).select("-password");
+    if (!group.members.some((member) => member.toString() === userId.toString())) {
+      return res
+        .status(403)
+        .json({ message: "You are not a member of this group" });
+    }
 
-    res.status(200).json(chatPartners);
+    const messages = await Message.find({ groupId })
+      .populate("senderId", "fullName profilePic")
+      .sort({ createdAt: 1 });
+
+    res.status(200).json(messages);
   } catch (error) {
-    console.error("Error in getChatPartners: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error in getGroupMessages controller:", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// Mark group messages as read
+export const markGroupMessagesAsRead = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user._id;
+
+    // Update last seen time
+    await GroupMemberActivity.findOneAndUpdate(
+      { groupId, userId },
+      { lastSeen: new Date() },
+      { upsert: true }
+    );
+
+    // Mark messages as read
+    await Message.updateMany(
+      {
+        groupId,
+        "readBy.userId": { $ne: userId },
+      },
+      {
+        $push: {
+          readBy: {
+            userId,
+            readAt: new Date(),
+          },
+        },
+      }
+    );
+
+    res.status(200).json({ message: "Messages marked as read" });
+  } catch (error) {
+    console.error(
+      "Error in markGroupMessagesAsRead controller:",
+      error.message
+    );
+    res.status(500).json({ message: "Internal server error" });
   }
 };
