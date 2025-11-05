@@ -5,8 +5,8 @@ import { ENV } from "./env.js";
 import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import Group from "../models/Group.js"; // ✅ FIXED: Added missing import
 import cloudinary from "./cloudinary.js";
-
 
 const app = express();
 
@@ -17,6 +17,9 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+
+// ✅ FIXED: Apply authentication middleware
+io.use(socketAuthMiddleware);
 
 const userSocketMap = {}; // {userId: socketId}
 const userTypingStatus = {}; // {groupId: {userId: {username, timer}}}
@@ -30,16 +33,22 @@ export function getOnlineUsersInGroup(groupId, memberIds) {
 }
 
 io.on("connection", (socket) => {
-  console.log(`A user ${socket.user.fullName} connected`);
+  // ✅ FIXED: Consistent userId access from authenticated socket
+  const userId = socket.userId?.toString();
+  const userFullName = socket.user?.fullName || "Unknown User";
 
-  const userId = socket.handshake.query.userId;
+  console.log(`A user ${userFullName} connected`);
+
   if (userId) {
     userSocketMap[userId] = socket.id;
 
-  // io.emit() is used to send events to all connected clients
-  io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    // io.emit() is used to send events to all connected clients
+    io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  } // ✅ FIXED: Added closing brace
 
-  // ✅ Socket handler: Get message history
+  // ============================================
+  // MESSAGE HISTORY
+  // ============================================
   socket.on("getMessages", async ({ userId: chatUserId }) => {
     try {
       const myId = socket.userId;
@@ -58,7 +67,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ✅ Socket handler: Send message
+  // ============================================
+  // SEND MESSAGE (1-on-1)
+  // ============================================
   socket.on("sendMessage", async ({ receiverId, text, image }) => {
     try {
       const senderId = socket.userId;
@@ -69,8 +80,8 @@ io.on("connection", (socket) => {
       }
 
       if (senderId.toString() === receiverId.toString()) {
-        return socket.emit("messageSent", { 
-          error: "Cannot send messages to yourself" 
+        return socket.emit("messageSent", {
+          error: "Cannot send messages to yourself",
         });
       }
 
@@ -79,11 +90,16 @@ io.on("connection", (socket) => {
         return socket.emit("messageSent", { error: "Receiver not found" });
       }
 
-      // Upload image if provided
+      // ✅ FIXED: Added error handling for cloudinary upload
       let imageUrl;
       if (image) {
-        const uploadResponse = await cloudinary.uploader.upload(image);
-        imageUrl = uploadResponse.secure_url;
+        try {
+          const uploadResponse = await cloudinary.uploader.upload(image);
+          imageUrl = uploadResponse.secure_url;
+        } catch (uploadError) {
+          console.error("Cloudinary upload error:", uploadError);
+          return socket.emit("messageSent", { error: "Failed to upload image" });
+        }
       }
 
       // Save message to database
@@ -105,18 +121,12 @@ io.on("connection", (socket) => {
         io.to(receiverSocketId).emit("newMessage", newMessage);
       }
 
-      console.log(`Message sent from ${socket.user.fullName} to ${receiverId}`);
+      console.log(`Message sent from ${userFullName} to ${receiverId}`);
     } catch (error) {
       console.log("Error in sendMessage socket handler:", error.message);
       socket.emit("messageSent", { error: "Failed to send message" });
     }
   });
-  // with socket.on we listen for events from clients
-  socket.on("disconnect", () => {
-    console.log(`A user ${socket.user.fullName} disconnected`);
-    delete userSocketMap[userId];
-    io.emit("getOnlineUsers", Object.keys(userSocketMap));
-  }
 
   // ============================================
   // GROUP CHAT EVENTS
@@ -305,14 +315,14 @@ io.on("connection", (socket) => {
   });
 
   // ============================================
-  // 1-ON-1 CHAT EVENTS (Keep existing functionality)
+  // 1-ON-1 CHAT EVENTS
   // ============================================
 
   // Typing indicator for 1-on-1 chat
   socket.on("typing", (data) => {
     const { receiverId } = data;
     const receiverSocketId = getReceiverSocketId(receiverId);
-    
+
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("user_typing", {
         senderId: userId,
@@ -323,7 +333,7 @@ io.on("connection", (socket) => {
   socket.on("stop_typing", (data) => {
     const { receiverId } = data;
     const receiverSocketId = getReceiverSocketId(receiverId);
-    
+
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("user_stopped_typing", {
         senderId: userId,
@@ -332,15 +342,15 @@ io.on("connection", (socket) => {
   });
 
   // ============================================
-  // DISCONNECT EVENT
+  // DISCONNECT EVENT (✅ FIXED: Removed duplicate)
   // ============================================
 
   socket.on("disconnect", () => {
     console.log("User disconnected", socket.id);
-    
+
     if (userId) {
       delete userSocketMap[userId];
-      
+
       // Emit updated online users list (for 1-on-1 chat)
       io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
