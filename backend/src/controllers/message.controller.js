@@ -106,3 +106,40 @@ export const getChatPartners = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Add this method to send messages to a group chat
+export const sendGroupMessage = async (req, res) => {
+  try {
+    const { text, image, groupId } = req.body; // Include groupId in the request
+    const senderId = req.user._id;
+
+    if (!text && !image) {
+      return res.status(400).json({ message: "Text or image is required." });
+    }
+
+    const newMessage = new Message({
+      senderId,
+      groupId, // Add groupId to the message
+      text,
+      image,
+    });
+
+    await newMessage.save();
+
+    // Emit the message to all members of the group
+    const groupChat = await GroupChat.findById(groupId);
+    if (groupChat) {
+      groupChat.members.forEach(memberId => {
+        const memberSocketId = getReceiverSocketId(memberId);
+        if (memberSocketId) {
+          io.to(memberSocketId).emit("newGroupMessage", newMessage);
+        }
+      });
+    }
+
+    res.status(201).json(newMessage);
+  } catch (error) {
+    console.log("Error in sendGroupMessage controller: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
