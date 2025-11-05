@@ -7,13 +7,15 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import Group from "../models/Group.js"; // ✅ FIXED: Added missing import
 import cloudinary from "./cloudinary.js";
+import GroupChat from "../models/GroupChat.js";
+import Message from "../models/Message.js";
 
 const app = express();
-
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
-    origin: [process.env.CLIENT_URL || "http://localhost:5173"],
+    origin: [ENV.CLIENT_URL],
     credentials: true,
   },
 });
@@ -24,13 +26,13 @@ io.use(socketAuthMiddleware);
 const userSocketMap = {}; // {userId: socketId}
 const userTypingStatus = {}; // {groupId: {userId: {username, timer}}}
 
+// we will use this function to check if the user is online or not
 export function getReceiverSocketId(userId) {
   return userSocketMap[userId];
 }
 
-export function getOnlineUsersInGroup(groupId, memberIds) {
-  return memberIds.filter((memberId) => userSocketMap[memberId.toString()]);
-}
+// this is for storing online users
+const userSocketMap = {}; // {userId:socketId}
 
 io.on("connection", (socket) => {
   // ✅ FIXED: Consistent userId access from authenticated socket
@@ -128,189 +130,144 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ============================================
-  // GROUP CHAT EVENTS
-  // ============================================
-
-  // Join user's group rooms
-  socket.on("join_groups", async (groupIds) => {
+  // Handle 1-on-1 message sending (existing functionality)
+  socket.on("sendMessage", async (messageData) => {
     try {
-      if (Array.isArray(groupIds)) {
-        groupIds.forEach((groupId) => {
-          socket.join(`group_${groupId}`);
-        });
-        console.log(`User ${userId} joined groups:`, groupIds);
+      const { receiverId, text, image } = messageData;
+      const senderId = userId;
 
-        // Notify group members that user is online
-        for (const groupId of groupIds) {
-          socket.to(`group_${groupId}`).emit("user_online_in_group", {
-            groupId,
-            userId,
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Error joining groups:", error);
-    }
-  });
-
-  // Join specific group room
-  socket.on("join_group", async (groupId) => {
-    try {
-      socket.join(`group_${groupId}`);
-      console.log(`User ${userId} joined group ${groupId}`);
-
-      // Notify group members
-      socket.to(`group_${groupId}`).emit("user_joined_group", {
-        groupId,
-        userId,
-      });
-
-      // Get and send online members
-      const group = await Group.findById(groupId).select("members");
-      if (group) {
-        const onlineMembers = getOnlineUsersInGroup(
-          groupId,
-          group.members.map((m) => m.toString())
-        );
-        io.to(`group_${groupId}`).emit("group_online_members", {
-          groupId,
-          onlineMembers,
-        });
-      }
-    } catch (error) {
-      console.error("Error joining group:", error);
-    }
-  });
-
-  // Leave group room
-  socket.on("leave_group", (groupId) => {
-    socket.leave(`group_${groupId}`);
-    console.log(`User ${userId} left group ${groupId}`);
-
-    // Notify group members
-    socket.to(`group_${groupId}`).emit("user_left_group", {
-      groupId,
-      userId,
-    });
-  });
-
-  // Send group message
-  socket.on("send_group_message", async (data) => {
-    try {
-      const { groupId, text, image } = data;
-
-      // Verify group and membership
-      const group = await Group.findById(groupId);
-      if (!group) {
-        socket.emit("error", { message: "Group not found" });
-        return;
-      }
-
-      if (!group.members.some((m) => m.toString() === userId)) {
-        socket.emit("error", { message: "Not a group member" });
-        return;
-      }
-
-      // Message is already saved via REST API, just broadcast
-      // This event is for real-time notification only
-      socket.to(`group_${groupId}`).emit("group_message_received", {
-        groupId,
-        senderId: userId,
+      const newMessage = new Message({
+        senderId,
+        receiverId,
         text,
         image,
-        timestamp: new Date(),
       });
+
+      await newMessage.save();
+
+      // Send to receiver if online
+      const receiverSocketId = userSocketMap[receiverId];
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("newMessage", newMessage);
+      }
+
+      // Send confirmation back to sender
+      socket.emit("messageSent", newMessage);
     } catch (error) {
-      console.error("Error sending group message:", error);
-      socket.emit("error", { message: "Failed to send message" });
+      console.log("Error in sendMessage socket event:", error.message);
+      socket.emit("messageError", { error: "Failed to send message" });
     }
   });
 
-  // Typing indicator in group
-  socket.on("typing_group", async (data) => {
+  // Handle group chat creation
+  socket.on("createGroupChat", async (data) => {
     try {
-      const { groupId, username, isTyping } = data;
+      const { groupName, members } = data;
+      const creatorId = userId;
 
-      if (!userTypingStatus[groupId]) {
-        userTypingStatus[groupId] = {};
-      }
+      // Add creator to members if not already included
+      const allMembers = [...new Set([creatorId, ...members])];
 
-      if (isTyping) {
-        // Clear existing timer if any
-        if (userTypingStatus[groupId][userId]?.timer) {
-          clearTimeout(userTypingStatus[groupId][userId].timer);
+      const groupChat = new GroupChat({
+        name: groupName,
+        members: allMembers,
+      });
+      await groupChat.save();
+
+      // Notify all members about the new group chat
+      allMembers.forEach((memberId) => {
+        const userSocketId = userSocketMap[memberId];
+        if (userSocketId) {
+          io.to(userSocketId).emit("groupChatCreated", groupChat);
         }
+      });
 
-        // Set user as typing
-        userTypingStatus[groupId][userId] = {
-          username,
-          timer: setTimeout(() => {
-            // Auto stop typing after 3 seconds
-            delete userTypingStatus[groupId][userId];
-            socket.to(`group_${groupId}`).emit("user_stopped_typing_group", {
-              groupId,
-              userId,
-            });
-          }, 3000),
-        };
-
-        // Notify other group members
-        socket.to(`group_${groupId}`).emit("user_typing_group", {
-          groupId,
-          userId,
-          username,
-        });
-      } else {
-        // User stopped typing
-        if (userTypingStatus[groupId]?.[userId]?.timer) {
-          clearTimeout(userTypingStatus[groupId][userId].timer);
-        }
-        delete userTypingStatus[groupId]?.[userId];
-
-        socket.to(`group_${groupId}`).emit("user_stopped_typing_group", {
-          groupId,
-          userId,
-        });
-      }
+      // Send confirmation back to creator
+      socket.emit("groupChatCreatedSuccess", groupChat);
     } catch (error) {
-      console.error("Error handling typing status:", error);
+      console.log("Error in createGroupChat socket event:", error.message);
+      socket.emit("groupChatError", { error: "Failed to create group chat" });
     }
   });
 
-  // Message read status in group
-  socket.on("message_read_group", async (data) => {
+  // Handle group message sending
+  socket.on("sendGroupMessage", async (messageData) => {
     try {
-      const { groupId, messageId } = data;
+      const { groupId, text, image } = messageData;
+      const senderId = userId;
 
-      // Notify group members that user read the message
-      socket.to(`group_${groupId}`).emit("message_read_by_user", {
+      // Verify group exists and user is a member
+      const groupChat = await GroupChat.findById(groupId);
+      if (!groupChat) {
+        socket.emit("groupMessageError", { error: "Group chat not found" });
+        return;
+      }
+
+      if (!groupChat.members.includes(senderId)) {
+        socket.emit("groupMessageError", { error: "You are not a member of this group" });
+        return;
+      }
+
+      const newMessage = new Message({
+        senderId,
         groupId,
-        messageId,
-        userId,
-        readAt: new Date(),
+        text,
+        image,
+      });
+
+      await newMessage.save();
+      await newMessage.populate("senderId", "fullName profilePic");
+
+      // Send to all group members
+      groupChat.members.forEach((memberId) => {
+        const memberSocketId = userSocketMap[memberId.toString()];
+        if (memberSocketId) {
+          io.to(memberSocketId).emit("newGroupMessage", newMessage);
+        }
       });
     } catch (error) {
-      console.error("Error updating read status:", error);
+      console.log("Error in sendGroupMessage socket event:", error.message);
+      socket.emit("groupMessageError", { error: "Failed to send group message" });
     }
   });
 
-  // Request online members in group
-  socket.on("get_group_online_members", async (groupId) => {
+  // Handle adding member to group
+  socket.on("addMemberToGroup", async (data) => {
     try {
-      const group = await Group.findById(groupId).select("members");
-      if (group) {
-        const onlineMembers = getOnlineUsersInGroup(
-          groupId,
-          group.members.map((m) => m.toString())
-        );
-        socket.emit("group_online_members", {
-          groupId,
-          onlineMembers,
+      const { groupId, memberId } = data;
+
+      const groupChat = await GroupChat.findById(groupId);
+      if (!groupChat) {
+        socket.emit("groupError", { error: "Group chat not found" });
+        return;
+      }
+
+      if (!groupChat.members.includes(userId)) {
+        socket.emit("groupError", { error: "You are not a member of this group" });
+        return;
+      }
+
+      if (!groupChat.members.includes(memberId)) {
+        groupChat.members.push(memberId);
+        await groupChat.save();
+
+        // Notify the new member
+        const memberSocketId = userSocketMap[memberId];
+        if (memberSocketId) {
+          io.to(memberSocketId).emit("addedToGroup", groupChat);
+        }
+
+        // Notify all existing members
+        groupChat.members.forEach((member) => {
+          const socketId = userSocketMap[member.toString()];
+          if (socketId) {
+            io.to(socketId).emit("memberAdded", { groupId, memberId });
+          }
         });
       }
     } catch (error) {
-      console.error("Error getting online members:", error);
+      console.log("Error in addMemberToGroup socket event:", error.message);
+      socket.emit("groupError", { error: "Failed to add member" });
     }
   });
 
@@ -353,23 +310,51 @@ io.on("connection", (socket) => {
 
       // Emit updated online users list (for 1-on-1 chat)
       io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  // Handle removing member from group
+  socket.on("removeMemberFromGroup", async (data) => {
+    try {
+      const { groupId, memberId } = data;
 
-      // Clean up typing status for all groups
-      Object.keys(userTypingStatus).forEach((groupId) => {
-        if (userTypingStatus[groupId]?.[userId]) {
-          if (userTypingStatus[groupId][userId].timer) {
-            clearTimeout(userTypingStatus[groupId][userId].timer);
-          }
-          delete userTypingStatus[groupId][userId];
+      const groupChat = await GroupChat.findById(groupId);
+      if (!groupChat) {
+        socket.emit("groupError", { error: "Group chat not found" });
+        return;
+      }
 
-          // Notify group members
-          io.to(`group_${groupId}`).emit("user_offline_in_group", {
-            groupId,
-            userId,
-          });
+      if (!groupChat.members.includes(userId)) {
+        socket.emit("groupError", { error: "You are not a member of this group" });
+        return;
+      }
+
+      groupChat.members = groupChat.members.filter(
+        (member) => member.toString() !== memberId
+      );
+      await groupChat.save();
+
+      // Notify the removed member
+      const memberSocketId = userSocketMap[memberId];
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("removedFromGroup", groupChat);
+      }
+
+      // Notify all remaining members
+      groupChat.members.forEach((member) => {
+        const socketId = userSocketMap[member.toString()];
+        if (socketId) {
+          io.to(socketId).emit("memberRemoved", { groupId, memberId });
         }
       });
+    } catch (error) {
+      console.log("Error in removeMemberFromGroup socket event:", error.message);
+      socket.emit("groupError", { error: "Failed to remove member" });
     }
+  });
+
+  // with socket.on we listen for events from clients
+  socket.on("disconnect", () => {
+    console.log("A user disconnected", socket.user.fullName);
+    delete userSocketMap[userId];
+    io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
 });
 

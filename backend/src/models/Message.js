@@ -10,50 +10,33 @@ const messageSchema = new mongoose.Schema(
     receiverId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: false, // Not required for group messages
+      required: false, // Make optional for group messages
     },
     groupId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Group",
-      required: false, // Required for group messages
+      ref: "GroupChat",
+      required: false, // Optional for 1-on-1 messages
     },
     text: {
       type: String,
+      trim: true,
+      maxlength: 2000,
     },
     image: {
       type: String,
     },
-    // Track who has read the message in groups
-    readBy: [
-      {
-        userId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-        },
-        readAt: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
   },
   { timestamps: true }
 );
 
-// Validation: message must have either receiverId or groupId
-messageSchema.pre("save", function (next) {
+// Add validation: either receiverId or groupId must be present
+messageSchema.pre("validate", function (next) {
   if (!this.receiverId && !this.groupId) {
-    next(new Error("Message must have either receiverId or groupId"));
-  } else if (this.receiverId && this.groupId) {
-    next(new Error("Message cannot have both receiverId and groupId"));
+    next(new Error("Either receiverId or groupId must be provided"));
   } else {
     next();
   }
 });
-
-// Indexes for better query performance
-messageSchema.index({ senderId: 1, receiverId: 1 });
-messageSchema.index({ groupId: 1, createdAt: -1 });
 
 const Message = mongoose.model("Message", messageSchema);
 
