@@ -5,7 +5,7 @@ import { ENV } from "./env.js";
 import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
-import Group from "../models/Group.js"; // ✅ FIXED: Added missing import
+import GroupChat from "../models/GroupChat.js"; // ✅ Using GroupChat for group functionality
 import cloudinary from "./cloudinary.js";
 
 const app = express();
@@ -18,33 +18,35 @@ const io = new Server(server, {
   },
 });
 
-// ✅ FIXED: Apply authentication middleware
+// ✅ Apply authentication middleware
 io.use(socketAuthMiddleware);
 
 const userSocketMap = {}; // {userId: socketId}
 const userTypingStatus = {}; // {groupId: {userId: {username, timer}}}
 
-// we will use this function to check if the user is online or not
+// Get socket ID for a specific user
 export function getReceiverSocketId(userId) {
   return userSocketMap[userId];
 }
 
-// this is for storing online users
-const userSocketMap = {}; // {userId:socketId}
+// Get online users in a group
+export function getOnlineUsersInGroup(groupId, memberIds) {
+  return memberIds.filter((memberId) => userSocketMap[memberId.toString()]);
+}
 
+//connection event
 io.on("connection", (socket) => {
-  // ✅ FIXED: Consistent userId access from authenticated socket
   const userId = socket.userId?.toString();
   const userFullName = socket.user?.fullName || "Unknown User";
 
   console.log(`A user ${userFullName} connected`);
-
+  console.log("Socket ID:", socket.id);
+  console.log("User ID:", userId);
+  
   if (userId) {
     userSocketMap[userId] = socket.id;
-
-    // io.emit() is used to send events to all connected clients
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
-  } // ✅ FIXED: Added closing brace
+  }
 
   // ============================================
   // MESSAGE HISTORY
@@ -68,7 +70,7 @@ io.on("connection", (socket) => {
   });
 
   // ============================================
-  // SEND MESSAGE (1-on-1)
+  // SEND MESSAGE (1-on-1) - ✅ CONSOLIDATED
   // ============================================
   socket.on("sendMessage", async ({ receiverId, text, image }) => {
     try {
@@ -90,7 +92,7 @@ io.on("connection", (socket) => {
         return socket.emit("messageSent", { error: "Receiver not found" });
       }
 
-      // ✅ FIXED: Added error handling for cloudinary upload
+      // Upload image if provided
       let imageUrl;
       if (image) {
         try {
@@ -128,36 +130,11 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle 1-on-1 message sending (existing functionality)
-  socket.on("sendMessage", async (messageData) => {
-    try {
-      const { receiverId, text, image } = messageData;
-      const senderId = userId;
+  // ============================================
+  // GROUP CHAT MANAGEMENT
+  // ============================================
 
-      const newMessage = new Message({
-        senderId,
-        receiverId,
-        text,
-        image,
-      });
-
-      await newMessage.save();
-
-      // Send to receiver if online
-      const receiverSocketId = userSocketMap[receiverId];
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("newMessage", newMessage);
-      }
-
-      // Send confirmation back to sender
-      socket.emit("messageSent", newMessage);
-    } catch (error) {
-      console.log("Error in sendMessage socket event:", error.message);
-      socket.emit("messageError", { error: "Failed to send message" });
-    }
-  });
-
-  // Handle group chat creation
+  // Create group chat
   socket.on("createGroupChat", async (data) => {
     try {
       const { groupName, members } = data;
@@ -188,7 +165,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle group message sending
+  // Send group message
   socket.on("sendGroupMessage", async (messageData) => {
     try {
       const { groupId, text, image } = messageData;
@@ -202,15 +179,31 @@ io.on("connection", (socket) => {
       }
 
       if (!groupChat.members.includes(senderId)) {
-        socket.emit("groupMessageError", { error: "You are not a member of this group" });
+        socket.emit("groupMessageError", {
+          error: "You are not a member of this group",
+        });
         return;
+      }
+
+      // Upload image if provided
+      let imageUrl;
+      if (image) {
+        try {
+          const uploadResponse = await cloudinary.uploader.upload(image);
+          imageUrl = uploadResponse.secure_url;
+        } catch (uploadError) {
+          console.error("Cloudinary upload error:", uploadError);
+          return socket.emit("groupMessageError", {
+            error: "Failed to upload image",
+          });
+        }
       }
 
       const newMessage = new Message({
         senderId,
         groupId,
         text,
-        image,
+        image: imageUrl,
       });
 
       await newMessage.save();
@@ -229,7 +222,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle adding member to group
+  // Add member to group
   socket.on("addMemberToGroup", async (data) => {
     try {
       const { groupId, memberId } = data;
@@ -269,46 +262,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ============================================
-  // 1-ON-1 CHAT EVENTS
-  // ============================================
-
-  // Typing indicator for 1-on-1 chat
-  socket.on("typing", (data) => {
-    const { receiverId } = data;
-    const receiverSocketId = getReceiverSocketId(receiverId);
-
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("user_typing", {
-        senderId: userId,
-      });
-    }
-  });
-
-  socket.on("stop_typing", (data) => {
-    const { receiverId } = data;
-    const receiverSocketId = getReceiverSocketId(receiverId);
-
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("user_stopped_typing", {
-        senderId: userId,
-      });
-    }
-  });
-
-  // ============================================
-  // DISCONNECT EVENT (✅ FIXED: Removed duplicate)
-  // ============================================
-
-  socket.on("disconnect", () => {
-    console.log("User disconnected", socket.id);
-
-    if (userId) {
-      delete userSocketMap[userId];
-
-      // Emit updated online users list (for 1-on-1 chat)
-      io.emit("getOnlineUsers", Object.keys(userSocketMap));
-  // Handle removing member from group
+  // Remove member from group
   socket.on("removeMemberFromGroup", async (data) => {
     try {
       const { groupId, memberId } = data;
@@ -348,11 +302,134 @@ io.on("connection", (socket) => {
     }
   });
 
-  // with socket.on we listen for events from clients
+  // ============================================
+  // TYPING INDICATORS
+  // ============================================
+
+  // Typing indicator for 1-on-1 chat
+  socket.on("typing", (data) => {
+    const { receiverId } = data;
+    const receiverSocketId = getReceiverSocketId(receiverId);
+
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("user_typing", {
+        senderId: userId,
+      });
+    }
+  });
+
+  socket.on("stop_typing", (data) => {
+    const { receiverId } = data;
+    const receiverSocketId = getReceiverSocketId(receiverId);
+
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("user_stopped_typing", {
+        senderId: userId,
+      });
+    }
+  });
+
+  // Typing indicator for group chat
+  socket.on("typing_group", async (data) => {
+    try {
+      const { groupId, username, isTyping } = data;
+
+      if (!userTypingStatus[groupId]) {
+        userTypingStatus[groupId] = {};
+      }
+
+      if (isTyping) {
+        // Clear existing timer if any
+        if (userTypingStatus[groupId][userId]?.timer) {
+          clearTimeout(userTypingStatus[groupId][userId].timer);
+        }
+
+        // Set user as typing
+        userTypingStatus[groupId][userId] = {
+          username,
+          timer: setTimeout(() => {
+            // Auto stop typing after 3 seconds
+            delete userTypingStatus[groupId][userId];
+
+            // Notify group members
+            const groupChat = GroupChat.findById(groupId);
+            if (groupChat) {
+              groupChat.members.forEach((memberId) => {
+                const socketId = userSocketMap[memberId.toString()];
+                if (socketId && socketId !== socket.id) {
+                  io.to(socketId).emit("user_stopped_typing_group", {
+                    groupId,
+                    userId,
+                  });
+                }
+              });
+            }
+          }, 3000),
+        };
+
+        // Notify other group members
+        const groupChat = await GroupChat.findById(groupId);
+        if (groupChat) {
+          groupChat.members.forEach((memberId) => {
+            const socketId = userSocketMap[memberId.toString()];
+            if (socketId && socketId !== socket.id) {
+              io.to(socketId).emit("user_typing_group", {
+                groupId,
+                userId,
+                username,
+              });
+            }
+          });
+        }
+      } else {
+        // User stopped typing
+        if (userTypingStatus[groupId]?.[userId]?.timer) {
+          clearTimeout(userTypingStatus[groupId][userId].timer);
+        }
+        delete userTypingStatus[groupId]?.[userId];
+
+        // Notify group members
+        const groupChat = await GroupChat.findById(groupId);
+        if (groupChat) {
+          groupChat.members.forEach((memberId) => {
+            const socketId = userSocketMap[memberId.toString()];
+            if (socketId && socketId !== socket.id) {
+              io.to(socketId).emit("user_stopped_typing_group", {
+                groupId,
+                userId,
+              });
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error handling typing status:", error);
+    }
+  });
+
+  // ============================================
+  // DISCONNECT EVENT - ✅ CONSOLIDATED
+  // ============================================
+
   socket.on("disconnect", () => {
-    console.log("A user disconnected", socket.user.fullName);
-    delete userSocketMap[userId];
-    io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    console.log(`User ${userFullName} disconnected`, socket.id);
+
+    if (userId) {
+      delete userSocketMap[userId];
+
+      // Emit updated online users list
+      io.emit("getOnlineUsers", Object.keys(userSocketMap));
+
+      // Clean up typing status for all groups
+      Object.keys(userTypingStatus).forEach((groupId) => {
+        if (userTypingStatus[groupId]?.[userId]) {
+          if (userTypingStatus[groupId][userId].timer) {
+            clearTimeout(userTypingStatus[groupId][userId].timer);
+          }
+          delete userTypingStatus[groupId][userId];
+        }
+      });
+    }
   });
 });
 
