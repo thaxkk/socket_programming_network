@@ -7,8 +7,6 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import Group from "../models/Group.js"; // ✅ FIXED: Added missing import
 import cloudinary from "./cloudinary.js";
-import GroupChat from "../models/GroupChat.js";
-import Message from "../models/Message.js";
 
 const app = express();
 const server = http.createServer(app);
