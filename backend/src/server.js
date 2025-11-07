@@ -16,7 +16,24 @@ const PORT = ENV.PORT || 3000;
 
 // Increase JSON body limit to allow base64 image payloads from the frontend
 app.use(express.json({ limit: "10mb" })); // req.body
-app.use(cors({ origin: ENV.CLIENT_URL, credentials: true }));
+
+// ✅ Choose CORS origin based on environment
+if (ENV.NODE_ENV === "development") {
+  app.use(
+    cors({
+      origin: ENV.CLIENT_URL, // e.g. http://localhost:5173
+      credentials: true,
+    })
+  );
+} else {
+  app.use(
+    cors({
+      origin: ["https://network-chatapp.vercel.app"], // 🔥 your Vercel frontend domain
+      credentials: true,
+    })
+  );
+}
+
 app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
