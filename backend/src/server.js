@@ -20,19 +20,14 @@ app.use(express.json({ limit: "10mb" })); // req.body
 
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://network-chatapp.vercel.app", // your frontend domain
+  "https://network-chatapp.vercel.app",
 ];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
+  origin: allowedOrigins,
   credentials: true,
 }));
+
 
 app.use(cookieParser());
 

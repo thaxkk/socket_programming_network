@@ -11,9 +11,14 @@ import cloudinary from "./cloudinary.js";
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://network-chatapp.vercel.app",
+];
+
 const io = new Server(server, {
   cors: {
-    origin: [ENV.CLIENT_URL],
+    origin: allowedOrigins,
     credentials: true,
   },
 });
