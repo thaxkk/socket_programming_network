@@ -112,8 +112,26 @@ export const updateProfile = async (req, res) => {
     if (!profilePic) return res.status(400).json({ message: "Profile pic is required" });
 
     const userId = req.user._id;
+    // If frontend already sent a hosted URL, just persist it
+    if (typeof profilePic === "string" && (profilePic.startsWith("http://") || profilePic.startsWith("https://"))) {
+      const updatedUser = await User.findByIdAndUpdate(userId, { profilePic }, { new: true });
+      return res.status(200).json(updatedUser);
+    }
 
-    const uploadResponse = await cloudinary.uploader.upload(profilePic);
+    // Ensure Cloudinary is configured
+    if (!ENV.CLOUDINARY_API_KEY || !ENV.CLOUDINARY_API_SECRET || !ENV.CLOUDINARY_CLOUD_NAME) {
+      console.error("Cloudinary configuration missing (ENV variables)");
+      return res.status(500).json({ message: "Server configuration error: Cloudinary not configured" });
+    }
+
+    // Attempt upload. cloudinary accepts data URLs (data:image/...), remote URLs, or file paths.
+    let uploadResponse;
+    try {
+      uploadResponse = await cloudinary.uploader.upload(profilePic, { folder: "profile_pics" });
+    } catch (uploadErr) {
+      console.error("Cloudinary upload error:", uploadErr);
+      return res.status(500).json({ message: "Failed to upload image" });
+    }
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
