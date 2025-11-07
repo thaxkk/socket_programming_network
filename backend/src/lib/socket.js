@@ -21,6 +21,13 @@ const io = new Server(server, {
     origin: allowedOrigins,
     credentials: true,
   },
+    // ⭐ CRITICAL: Increase message size limits for image uploads
+  maxHttpBufferSize: 1e7, // 10MB (default is 1MB)
+  pingTimeout: 60000, // 60 seconds
+  pingInterval: 25000, // 25 seconds
+  // Additional options for better performance
+  transports: ['websocket', 'polling'],
+  allowUpgrades: true,
 });
 
 // ✅ Apply authentication middleware

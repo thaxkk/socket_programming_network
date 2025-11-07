@@ -14,9 +14,9 @@ const __dirname = path.resolve();
 
 const PORT = ENV.PORT || 3000;
 
-// Increase JSON body limit to allow base64 image payloads from the frontend
-app.use(express.json({ limit: "10mb" })); // req.body
-
+// ⭐ Increase JSON body limit for base64 images (profile pics via HTTP)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 const allowedOrigins = [
   "http://localhost:5173",
