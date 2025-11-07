@@ -97,18 +97,60 @@ io.on("connection", (socket) => {
         return socket.emit("messageSent", { error: "Receiver not found" });
       }
 
-      // Upload image if provided
-      let imageUrl;
-      if (image) {
-        try {
-          const uploadResponse = await cloudinary.uploader.upload(image);
-          imageUrl = uploadResponse.secure_url;
-        } catch (uploadError) {
-          console.error("Cloudinary upload error:", uploadError);
-          return socket.emit("messageSent", { error: "Failed to upload image" });
+    // Upload image if provided
+    let imageUrl;
+    if (image) {
+      try {
+        // Validate base64 format
+        if (!image.startsWith('data:image')) {
+          return socket.emit("messageSent", { 
+            error: "Invalid image format" 
+          });
         }
-      }
 
+        // Check approximate size (base64 is ~33% larger than original)
+        const imageSizeInMB = (image.length * 0.75) / (1024 * 1024);
+        console.log(`📤 Uploading image (${imageSizeInMB.toFixed(2)}MB) from ${userFullName}...`);
+
+        // Optional: Add size limit check (even after compression)
+        if (imageSizeInMB > 5) {
+          return socket.emit("messageSent", { 
+            error: "Image too large. Please try a smaller image." 
+          });
+        }
+
+        // Upload to Cloudinary with optimizations
+        const uploadResponse = await cloudinary.uploader.upload(image, {
+          folder: 'chat-app/messages',
+          resource_type: 'auto',
+          transformation: [
+            { width: 1024, height: 1024, crop: 'limit' }, // Max dimensions
+            { quality: 'auto:good' }, // Auto quality optimization
+            { fetch_format: 'auto' } // Serve WebP to supported browsers
+          ],
+          timeout: 60000 // 60 second timeout
+        });
+
+        imageUrl = uploadResponse.secure_url;
+        console.log(`✅ Image uploaded successfully: ${imageUrl.substring(0, 50)}...`);
+
+      } catch (uploadError) {
+        console.error("❌ Cloudinary upload error:", uploadError);
+        
+        // Provide specific error messages
+        let errorMessage = "Failed to upload image";
+        
+        if (uploadError.http_code === 413) {
+          errorMessage = "Image too large";
+        } else if (uploadError.message?.includes('timeout')) {
+          errorMessage = "Upload timeout. Please try again";
+        } else if (uploadError.error?.message) {
+          errorMessage = uploadError.error.message;
+        }
+        
+        return socket.emit("messageSent", { error: errorMessage });
+      }
+    }
       // Save message to database
       const newMessage = new Message({
         senderId,
