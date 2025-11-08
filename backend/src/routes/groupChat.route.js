@@ -4,7 +4,6 @@ import {
     createGroupChat,
     getGroupChats,
     getGroupMessages,
-    sendGroupMessage,
     addMemberToGroup,
     removeMemberFromGroup
 } from '../controllers/groupChat.controller.js';
@@ -18,7 +17,6 @@ router.use( protectRoute );
 router.post('/create', createGroupChat);
 router.get('/all', getGroupChats);
 router.get('/:groupId/messages', getGroupMessages);
-router.post('/:groupId/message', sendGroupMessage);
 router.post('/:groupId/members', addMemberToGroup);
 router.delete('/:groupId/members/:memberId', removeMemberFromGroup);
 

@@ -81,6 +81,34 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ✅ ADD THIS - Get group message history via socket
+  socket.on("getGroupMessages", async ({ groupId }) => {
+    try {
+      const userId = socket.userId;
+
+      // Verify user is a member of the group
+      const groupChat = await GroupChat.findById(groupId);
+      if (!groupChat) {
+        return socket.emit("groupMessagesHistory", { error: "Group chat not found" });
+      }
+
+      if (!groupChat.members.includes(userId)) {
+        return socket.emit("groupMessagesHistory", { 
+          error: "You are not a member of this group" 
+        });
+      }
+
+      const messages = await Message.find({ groupId })
+        .populate("senderId", "fullName profilePic")
+        .sort({ createdAt: 1 });
+
+      socket.emit("groupMessagesHistory", { messages, groupId });
+    } catch (error) {
+      console.log("Error in getGroupMessages socket handler:", error.message);
+      socket.emit("groupMessagesHistory", { error: "Failed to fetch group messages" });
+    }
+  });
+
   // ============================================
   // SEND MESSAGE (1-on-1) - ✅ CONSOLIDATED
   // ============================================

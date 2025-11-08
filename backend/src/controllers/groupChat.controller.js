@@ -93,53 +93,8 @@ export const getGroupMessages = async (req, res) => {
   }
 };
 
-// Send a message to a group chat
-export const sendGroupMessage = async (req, res) => {
-  try {
-    const { text, image } = req.body;
-    const { groupId } = req.params;
-    const senderId = req.user._id;
-
-    if (!text && !image) {
-      return res.status(400).json({ message: "Text or image is required" });
-    }
-
-    // Verify group exists and user is a member
-    const groupChat = await GroupChat.findById(groupId);
-    if (!groupChat) {
-      return res.status(404).json({ message: "Group chat not found" });
-    }
-
-    if (!groupChat.members.includes(senderId)) {
-      return res.status(403).json({ message: "You are not a member of this group" });
-    }
-
-    const newMessage = new Message({
-      senderId,
-      groupId,
-      text,
-      image,
-    });
-
-    await newMessage.save();
-
-    // Populate sender info
-    await newMessage.populate("senderId", "fullName profilePic");
-
-    // Emit the message to all members of the group
-    groupChat.members.forEach((memberId) => {
-      const memberSocketId = getReceiverSocketId(memberId.toString());
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("newGroupMessage", newMessage);
-      }
-    });
-
-    res.status(201).json(newMessage);
-  } catch (error) {
-    console.log("Error in sendGroupMessage controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
+// ❌ REMOVE THIS - Group messages should only be sent via socket
+// export const sendGroupMessage = async (req, res) => { ... }
 
 // Add a member to a group chat
 export const addMemberToGroup = async (req, res) => {
