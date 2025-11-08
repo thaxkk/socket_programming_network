@@ -5,7 +5,7 @@ import { ENV } from "./env.js";
 import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
-import GroupChat from "../models/GroupChat.js"; // ✅ Using GroupChat for group functionality
+import GroupChat from "../models/GroupChat.js";
 import cloudinary from "./cloudinary.js";
 
 const app = express();
@@ -21,11 +21,9 @@ const io = new Server(server, {
     origin: allowedOrigins,
     credentials: true,
   },
-    // ⭐ CRITICAL: Increase message size limits for image uploads
-  maxHttpBufferSize: 1e7, // 10MB (default is 1MB)
-  pingTimeout: 60000, // 60 seconds
-  pingInterval: 25000, // 25 seconds
-  // Additional options for better performance
+  maxHttpBufferSize: 1e7, // 10MB
+  pingTimeout: 60000,
+  pingInterval: 25000,
   transports: ['websocket', 'polling'],
   allowUpgrades: true,
 });
@@ -61,7 +59,7 @@ io.on("connection", (socket) => {
   }
 
   // ============================================
-  // MESSAGE HISTORY
+  // MESSAGE HISTORY (1-on-1)
   // ============================================
   socket.on("getMessages", async ({ userId: chatUserId }) => {
     try {
@@ -81,36 +79,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ✅ ADD THIS - Get group message history via socket
-  socket.on("getGroupMessages", async ({ groupId }) => {
-    try {
-      const userId = socket.userId;
-
-      // Verify user is a member of the group
-      const groupChat = await GroupChat.findById(groupId);
-      if (!groupChat) {
-        return socket.emit("groupMessagesHistory", { error: "Group chat not found" });
-      }
-
-      if (!groupChat.members.includes(userId)) {
-        return socket.emit("groupMessagesHistory", { 
-          error: "You are not a member of this group" 
-        });
-      }
-
-      const messages = await Message.find({ groupId })
-        .populate("senderId", "fullName profilePic")
-        .sort({ createdAt: 1 });
-
-      socket.emit("groupMessagesHistory", { messages, groupId });
-    } catch (error) {
-      console.log("Error in getGroupMessages socket handler:", error.message);
-      socket.emit("groupMessagesHistory", { error: "Failed to fetch group messages" });
-    }
-  });
-
   // ============================================
-  // SEND MESSAGE (1-on-1) - ✅ CONSOLIDATED
+  // SEND MESSAGE (1-on-1)
   // ============================================
   socket.on("sendMessage", async ({ receiverId, text, image }) => {
     try {
@@ -132,60 +102,55 @@ io.on("connection", (socket) => {
         return socket.emit("messageSent", { error: "Receiver not found" });
       }
 
-    // Upload image if provided
-    let imageUrl;
-    if (image) {
-      try {
-        // Validate base64 format
-        if (!image.startsWith('data:image')) {
-          return socket.emit("messageSent", { 
-            error: "Invalid image format" 
+      // Upload image if provided
+      let imageUrl;
+      if (image) {
+        try {
+          if (!image.startsWith('data:image')) {
+            return socket.emit("messageSent", { 
+              error: "Invalid image format" 
+            });
+          }
+
+          const imageSizeInMB = (image.length * 0.75) / (1024 * 1024);
+          console.log(`📤 Uploading image (${imageSizeInMB.toFixed(2)}MB) from ${userFullName}...`);
+
+          if (imageSizeInMB > 5) {
+            return socket.emit("messageSent", { 
+              error: "Image too large. Please try a smaller image." 
+            });
+          }
+
+          const uploadResponse = await cloudinary.uploader.upload(image, {
+            folder: 'chat-app/messages',
+            resource_type: 'auto',
+            transformation: [
+              { width: 1024, height: 1024, crop: 'limit' },
+              { quality: 'auto:good' },
+              { fetch_format: 'auto' }
+            ],
+            timeout: 60000
           });
+
+          imageUrl = uploadResponse.secure_url;
+          console.log(`✅ Image uploaded successfully: ${imageUrl.substring(0, 50)}...`);
+
+        } catch (uploadError) {
+          console.error("❌ Cloudinary upload error:", uploadError);
+          
+          let errorMessage = "Failed to upload image";
+          if (uploadError.http_code === 413) {
+            errorMessage = "Image too large";
+          } else if (uploadError.message?.includes('timeout')) {
+            errorMessage = "Upload timeout. Please try again";
+          } else if (uploadError.error?.message) {
+            errorMessage = uploadError.error.message;
+          }
+          
+          return socket.emit("messageSent", { error: errorMessage });
         }
-
-        // Check approximate size (base64 is ~33% larger than original)
-        const imageSizeInMB = (image.length * 0.75) / (1024 * 1024);
-        console.log(`📤 Uploading image (${imageSizeInMB.toFixed(2)}MB) from ${userFullName}...`);
-
-        // Optional: Add size limit check (even after compression)
-        if (imageSizeInMB > 5) {
-          return socket.emit("messageSent", { 
-            error: "Image too large. Please try a smaller image." 
-          });
-        }
-
-        // Upload to Cloudinary with optimizations
-        const uploadResponse = await cloudinary.uploader.upload(image, {
-          folder: 'chat-app/messages',
-          resource_type: 'auto',
-          transformation: [
-            { width: 1024, height: 1024, crop: 'limit' }, // Max dimensions
-            { quality: 'auto:good' }, // Auto quality optimization
-            { fetch_format: 'auto' } // Serve WebP to supported browsers
-          ],
-          timeout: 60000 // 60 second timeout
-        });
-
-        imageUrl = uploadResponse.secure_url;
-        console.log(`✅ Image uploaded successfully: ${imageUrl.substring(0, 50)}...`);
-
-      } catch (uploadError) {
-        console.error("❌ Cloudinary upload error:", uploadError);
-        
-        // Provide specific error messages
-        let errorMessage = "Failed to upload image";
-        
-        if (uploadError.http_code === 413) {
-          errorMessage = "Image too large";
-        } else if (uploadError.message?.includes('timeout')) {
-          errorMessage = "Upload timeout. Please try again";
-        } else if (uploadError.error?.message) {
-          errorMessage = uploadError.error.message;
-        }
-        
-        return socket.emit("messageSent", { error: errorMessage });
       }
-    }
+
       // Save message to database
       const newMessage = new Message({
         senderId,
@@ -213,69 +178,161 @@ io.on("connection", (socket) => {
   });
 
   // ============================================
-  // GROUP CHAT MANAGEMENT
+  // GROUP CHAT - REQUIREMENT: CREATOR ONLY, EXPLICIT JOIN
   // ============================================
 
-  // Create group chat
+  // ✅ Create group chat (creator is ONLY initial member)
   socket.on("createGroupChat", async (data) => {
     try {
-      const { groupName, members } = data;
+      const { name } = data;
       const creatorId = userId;
 
-      // Add creator to members if not already included
-      const allMembers = [...new Set([creatorId, ...members])];
+      if (!name || !name.trim()) {
+        return socket.emit("groupChatCreated", { error: "Group name is required" });
+      }
 
+      // ✅ REQUIREMENT: Only creator is initial member
       const groupChat = new GroupChat({
-        name: groupName,
-        members: allMembers,
+        name: name.trim(),
+        createdBy: creatorId,
+        members: [creatorId], // ONLY creator
       });
       await groupChat.save();
 
-      // Notify all members about the new group chat
-      allMembers.forEach((memberId) => {
-        const userSocketId = userSocketMap[memberId];
-        if (userSocketId) {
-          io.to(userSocketId).emit("groupChatCreated", groupChat);
-        }
-      });
+      console.log(`✅ Group created: ${name} by ${userFullName}`);
 
       // Send confirmation back to creator
-      socket.emit("groupChatCreatedSuccess", groupChat);
+      socket.emit("groupChatCreated", { group: groupChat });
+
+      // Creator auto-joins the socket room
+      socket.join(`group:${groupChat._id}`);
+
     } catch (error) {
       console.log("Error in createGroupChat socket event:", error.message);
-      socket.emit("groupChatError", { error: "Failed to create group chat" });
+      socket.emit("groupChatCreated", { error: "Failed to create group chat" });
     }
   });
 
-  // Send group message
+  // ✅ Explicit join (users must join to become members)
+  socket.on("joinGroup", async ({ groupId }) => {
+    try {
+      const groupChat = await GroupChat.findById(groupId);
+      if (!groupChat) {
+        return socket.emit("joinedGroup", { error: "Group chat not found" });
+      }
+
+      const isMember = groupChat.members.some(m => m.toString() === userId);
+      
+      if (!isMember) {
+        // Add user to members
+        groupChat.members.push(userId);
+        await groupChat.save();
+        console.log(`✅ ${userFullName} joined group: ${groupChat.name}`);
+      }
+
+      // Join socket room for real-time updates
+      socket.join(`group:${groupId}`);
+
+      // Send confirmation
+      socket.emit("joinedGroup", { 
+        group: groupChat,
+        message: isMember ? "Already a member" : "Joined successfully"
+      });
+
+      // Notify all members in the room
+      socket.to(`group:${groupId}`).emit("memberJoined", {
+        groupId,
+        userId,
+        username: userFullName
+      });
+
+    } catch (error) {
+      console.log("Error in joinGroup socket event:", error.message);
+      socket.emit("joinedGroup", { error: "Failed to join group" });
+    }
+  });
+
+  // ✅ Get my groups
+  socket.on("getMyGroups", async () => {
+    try {
+      const groups = await GroupChat.find({ members: userId })
+        .sort({ updatedAt: -1 });
+
+      socket.emit("myGroupsHistory", { groups });
+    } catch (error) {
+      console.log("Error in getMyGroups:", error.message);
+      socket.emit("myGroupsHistory", { error: "Failed to fetch groups" });
+    }
+  });
+
+  // ✅ Get group messages (member-only)
+  socket.on("getGroupMessages", async ({ groupId }) => {
+    try {
+      // ✅ REQUIREMENT: Verify user is a member
+      const groupChat = await GroupChat.findById(groupId);
+      if (!groupChat) {
+        return socket.emit("groupMessagesHistory", { error: "Group chat not found" });
+      }
+
+      const isMember = groupChat.members.some(m => m.toString() === userId);
+      if (!isMember) {
+        return socket.emit("groupMessagesHistory", { 
+          error: "You are not a member of this group" 
+        });
+      }
+
+      const messages = await Message.find({ groupId })
+        .populate("senderId", "fullName profilePic")
+        .sort({ createdAt: 1 });
+
+      socket.emit("groupMessagesHistory", { messages, groupId });
+    } catch (error) {
+      console.log("Error in getGroupMessages socket handler:", error.message);
+      socket.emit("groupMessagesHistory", { error: "Failed to fetch group messages" });
+    }
+  });
+
+  // ✅ Send group message (member-only)
   socket.on("sendGroupMessage", async (messageData) => {
     try {
       const { groupId, text, image } = messageData;
       const senderId = userId;
 
-      // Verify group exists and user is a member
+      // ✅ REQUIREMENT: Verify user is a member
       const groupChat = await GroupChat.findById(groupId);
       if (!groupChat) {
-        socket.emit("groupMessageError", { error: "Group chat not found" });
-        return;
+        return socket.emit("groupMessageSent", { error: "Group chat not found" });
       }
 
-      if (!groupChat.members.includes(senderId)) {
-        socket.emit("groupMessageError", {
+      const isMember = groupChat.members.some(m => m.toString() === senderId);
+      if (!isMember) {
+        return socket.emit("groupMessageSent", {
           error: "You are not a member of this group",
         });
-        return;
+      }
+
+      if (!text && !image) {
+        return socket.emit("groupMessageSent", { error: "Text or image is required" });
       }
 
       // Upload image if provided
       let imageUrl;
       if (image) {
         try {
-          const uploadResponse = await cloudinary.uploader.upload(image);
+          const uploadResponse = await cloudinary.uploader.upload(image, {
+            folder: 'chat-app/group-messages',
+            resource_type: 'auto',
+            transformation: [
+              { width: 1024, height: 1024, crop: 'limit' },
+              { quality: 'auto:good' },
+              { fetch_format: 'auto' }
+            ],
+            timeout: 60000
+          });
           imageUrl = uploadResponse.secure_url;
         } catch (uploadError) {
           console.error("Cloudinary upload error:", uploadError);
-          return socket.emit("groupMessageError", {
+          return socket.emit("groupMessageSent", {
             error: "Failed to upload image",
           });
         }
@@ -291,96 +348,17 @@ io.on("connection", (socket) => {
       await newMessage.save();
       await newMessage.populate("senderId", "fullName profilePic");
 
-      // Send to all group members
-      groupChat.members.forEach((memberId) => {
-        const memberSocketId = userSocketMap[memberId.toString()];
-        if (memberSocketId) {
-          io.to(memberSocketId).emit("newGroupMessage", newMessage);
-        }
-      });
+      // ✅ REQUIREMENT: Broadcast only to members in the room
+      io.to(`group:${groupId}`).emit("newGroupMessage", newMessage);
+
+      // Send acknowledgment
+      socket.emit("groupMessageSent", { message: newMessage });
+
+      console.log(`✅ Group message sent in ${groupChat.name} by ${userFullName}`);
+
     } catch (error) {
       console.log("Error in sendGroupMessage socket event:", error.message);
-      socket.emit("groupMessageError", { error: "Failed to send group message" });
-    }
-  });
-
-  // Add member to group
-  socket.on("addMemberToGroup", async (data) => {
-    try {
-      const { groupId, memberId } = data;
-
-      const groupChat = await GroupChat.findById(groupId);
-      if (!groupChat) {
-        socket.emit("groupError", { error: "Group chat not found" });
-        return;
-      }
-
-      if (!groupChat.members.includes(userId)) {
-        socket.emit("groupError", { error: "You are not a member of this group" });
-        return;
-      }
-
-      if (!groupChat.members.includes(memberId)) {
-        groupChat.members.push(memberId);
-        await groupChat.save();
-
-        // Notify the new member
-        const memberSocketId = userSocketMap[memberId];
-        if (memberSocketId) {
-          io.to(memberSocketId).emit("addedToGroup", groupChat);
-        }
-
-        // Notify all existing members
-        groupChat.members.forEach((member) => {
-          const socketId = userSocketMap[member.toString()];
-          if (socketId) {
-            io.to(socketId).emit("memberAdded", { groupId, memberId });
-          }
-        });
-      }
-    } catch (error) {
-      console.log("Error in addMemberToGroup socket event:", error.message);
-      socket.emit("groupError", { error: "Failed to add member" });
-    }
-  });
-
-  // Remove member from group
-  socket.on("removeMemberFromGroup", async (data) => {
-    try {
-      const { groupId, memberId } = data;
-
-      const groupChat = await GroupChat.findById(groupId);
-      if (!groupChat) {
-        socket.emit("groupError", { error: "Group chat not found" });
-        return;
-      }
-
-      if (!groupChat.members.includes(userId)) {
-        socket.emit("groupError", { error: "You are not a member of this group" });
-        return;
-      }
-
-      groupChat.members = groupChat.members.filter(
-        (member) => member.toString() !== memberId
-      );
-      await groupChat.save();
-
-      // Notify the removed member
-      const memberSocketId = userSocketMap[memberId];
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("removedFromGroup", groupChat);
-      }
-
-      // Notify all remaining members
-      groupChat.members.forEach((member) => {
-        const socketId = userSocketMap[member.toString()];
-        if (socketId) {
-          io.to(socketId).emit("memberRemoved", { groupId, memberId });
-        }
-      });
-    } catch (error) {
-      console.log("Error in removeMemberFromGroup socket event:", error.message);
-      socket.emit("groupError", { error: "Failed to remove member" });
+      socket.emit("groupMessageSent", { error: "Failed to send group message" });
     }
   });
 
@@ -421,68 +399,36 @@ io.on("connection", (socket) => {
       }
 
       if (isTyping) {
-        // Clear existing timer if any
         if (userTypingStatus[groupId][userId]?.timer) {
           clearTimeout(userTypingStatus[groupId][userId].timer);
         }
 
-        // Set user as typing
         userTypingStatus[groupId][userId] = {
           username,
           timer: setTimeout(() => {
-            // Auto stop typing after 3 seconds
             delete userTypingStatus[groupId][userId];
-
-            // Notify group members
-            const groupChat = GroupChat.findById(groupId);
-            if (groupChat) {
-              groupChat.members.forEach((memberId) => {
-                const socketId = userSocketMap[memberId.toString()];
-                if (socketId && socketId !== socket.id) {
-                  io.to(socketId).emit("user_stopped_typing_group", {
-                    groupId,
-                    userId,
-                  });
-                }
-              });
-            }
+            socket.to(`group:${groupId}`).emit("user_stopped_typing_group", {
+              groupId,
+              userId,
+            });
           }, 3000),
         };
 
-        // Notify other group members
-        const groupChat = await GroupChat.findById(groupId);
-        if (groupChat) {
-          groupChat.members.forEach((memberId) => {
-            const socketId = userSocketMap[memberId.toString()];
-            if (socketId && socketId !== socket.id) {
-              io.to(socketId).emit("user_typing_group", {
-                groupId,
-                userId,
-                username,
-              });
-            }
-          });
-        }
+        socket.to(`group:${groupId}`).emit("user_typing_group", {
+          groupId,
+          userId,
+          username,
+        });
       } else {
-        // User stopped typing
         if (userTypingStatus[groupId]?.[userId]?.timer) {
           clearTimeout(userTypingStatus[groupId][userId].timer);
         }
         delete userTypingStatus[groupId]?.[userId];
 
-        // Notify group members
-        const groupChat = await GroupChat.findById(groupId);
-        if (groupChat) {
-          groupChat.members.forEach((memberId) => {
-            const socketId = userSocketMap[memberId.toString()];
-            if (socketId && socketId !== socket.id) {
-              io.to(socketId).emit("user_stopped_typing_group", {
-                groupId,
-                userId,
-              });
-            }
-          });
-        }
+        socket.to(`group:${groupId}`).emit("user_stopped_typing_group", {
+          groupId,
+          userId,
+        });
       }
     } catch (error) {
       console.error("Error handling typing status:", error);
@@ -490,7 +436,7 @@ io.on("connection", (socket) => {
   });
 
   // ============================================
-  // DISCONNECT EVENT - ✅ CONSOLIDATED
+  // DISCONNECT EVENT
   // ============================================
 
   socket.on("disconnect", () => {
@@ -498,8 +444,6 @@ io.on("connection", (socket) => {
 
     if (userId) {
       delete userSocketMap[userId];
-
-      // Emit updated online users list
       io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
       // Clean up typing status for all groups

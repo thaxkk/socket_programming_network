@@ -1,23 +1,20 @@
 import express from 'express';
 import { protectRoute } from '../middleware/auth.middleware.js';
-import { 
+import {
     createGroupChat,
+    joinGroupChat,
     getGroupChats,
     getGroupMessages,
-    addMemberToGroup,
-    removeMemberFromGroup
-} from '../controllers/groupChat.controller.js';
+    sendGroupMessage,
+} from "../controllers/groupChat.controller.js";
 
 const router = express.Router();
+router.use(protectRoute);
 
-// Protect all routes
-router.use( protectRoute );
-
-// Group chat routes
-router.post('/create', createGroupChat);
-router.get('/all', getGroupChats);
-router.get('/:groupId/messages', getGroupMessages);
-router.post('/:groupId/members', addMemberToGroup);
-router.delete('/:groupId/members/:memberId', removeMemberFromGroup);
+router.post("/create", createGroupChat);
+router.post("/:groupId/join", joinGroupChat);
+router.get("/all", getGroupChats);
+router.get("/:groupId/messages", getGroupMessages);
+router.post("/:groupId/messages", sendGroupMessage);
 
 export default router;

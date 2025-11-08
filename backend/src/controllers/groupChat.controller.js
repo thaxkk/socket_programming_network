@@ -1,100 +1,102 @@
 import GroupChat from "../models/GroupChat.js";
-import Message from "../models/Message.js";
+import GroupMessage from "../models/GroupMessage.js";
 import User from "../models/User.js";
 import { getReceiverSocketId } from "../lib/socket.js";
 import { io } from "../lib/socket.js";
 
-// Create a new group chat
+// Create a new group chat (ONLY creator is a member)
 export const createGroupChat = async (req, res) => {
   try {
-    const { name, members } = req.body;
-    const creatorId = req.user._id;
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: "Group name required" });
 
-    if (!name) {
-      return res.status(400).json({ message: "Group name is required" });
-    }
-
-    if (!members || members.length === 0) {
-      return res.status(400).json({ message: "At least one member is required" });
-    }
-
-    // Add creator to members if not already included
-    const allMembers = [...new Set([creatorId.toString(), ...members])];
-
-    // Verify all members exist
-    const validMembers = await User.find({ _id: { $in: allMembers } });
-    if (validMembers.length !== allMembers.length) {
-      return res.status(400).json({ message: "One or more members not found" });
-    }
-
-    const groupChat = new GroupChat({
+    const group = await GroupChat.create({
       name,
-      members: allMembers,
+      createdBy: req.user._id,
+      members: [req.user._id], // creator only
     });
 
-    await groupChat.save();
-
-    // Notify all members about the new group chat
-    allMembers.forEach((memberId) => {
-      const memberSocketId = getReceiverSocketId(memberId);
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("groupChatCreated", groupChat);
-      }
-    });
-
-    res.status(201).json(groupChat);
-  } catch (error) {
-    console.log("Error in createGroupChat controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(201).json(group);
+  } catch (e) {
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
-// Get all group chats for the logged-in user
+// User joins a group explicitly
+export const joinGroupChat = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const group = await GroupChat.findById(groupId);
+    if (!group) return res.status(404).json({ message: "Group not found" });
+
+    const already = group.members.some((m) => m.toString() === req.user._id.toString());
+    if (!already) {
+      group.members.push(req.user._id);
+      await group.save();
+    }
+    return res.status(200).json({ message: already ? "Already a member" : "Joined", group });
+  } catch {
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Get all groups user is a member of
 export const getGroupChats = async (req, res) => {
   try {
-    const userId = req.user._id;
-
-    const groupChats = await GroupChat.find({
-      members: userId,
-    }).populate("members", "fullName profilePic email");
-
-    res.status(200).json(groupChats);
-  } catch (error) {
-    console.log("Error in getGroupChats controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    const groups = await GroupChat.find({ members: req.user._id }).sort({ updatedAt: -1 });
+    return res.status(200).json(groups);
+  } catch {
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
-// Get messages from a specific group chat
+// Get messages (only if member)
 export const getGroupMessages = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user._id;
+    const group = await GroupChat.findById(groupId);
+    if (!group) return res.status(404).json({ message: "Group not found" });
 
-    // Verify user is a member of the group
-    const groupChat = await GroupChat.findById(groupId);
-    if (!groupChat) {
-      return res.status(404).json({ message: "Group chat not found" });
-    }
+    const isMember = group.members.some((m) => m.toString() === req.user._id.toString());
+    if (!isMember) return res.status(403).json({ message: "Not a group member" });
 
-    if (!groupChat.members.includes(userId)) {
-      return res.status(403).json({ message: "You are not a member of this group" });
-    }
+    const messages = await GroupMessage.find({ groupId })
+      .populate("senderId", "fullName profilePic")
+      .sort({ createdAt: 1 });
 
-    const messages = await Message.find({ groupId }).populate(
-      "senderId",
-      "fullName profilePic"
-    );
-
-    res.status(200).json(messages);
-  } catch (error) {
-    console.log("Error in getGroupMessages controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(200).json(messages);
+  } catch {
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
-// ❌ REMOVE THIS - Group messages should only be sent via socket
-// export const sendGroupMessage = async (req, res) => { ... }
+// Send message (only if member)
+export const sendGroupMessage = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { text, image = null } = req.body;
+
+    const group = await GroupChat.findById(groupId);
+    if (!group) return res.status(404).json({ message: "Group not found" });
+
+    const isMember = group.members.some((m) => m.toString() === req.user._id.toString());
+    if (!isMember) return res.status(403).json({ message: "Not a group member" });
+
+    if (!text && !image) return res.status(400).json({ message: "Message content required" });
+
+    const msg = await GroupMessage.create({
+      groupId,
+      senderId: req.user._id,
+      text: text || "",
+      image,
+    });
+
+    const populated = await msg.populate("senderId", "fullName profilePic");
+    return res.status(201).json(populated);
+  } catch {
+    return res.status(500).json({ message: "Server error" });
+  }
+};
 
 // Add a member to a group chat
 export const addMemberToGroup = async (req, res) => {
