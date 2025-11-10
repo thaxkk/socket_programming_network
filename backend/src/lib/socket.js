@@ -7,6 +7,7 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import GroupChat from "../models/GroupChat.js";
 import cloudinary from "./cloudinary.js";
+import GroupMessage from "../models/GroupMessage.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -272,10 +273,10 @@ io.on("connection", (socket) => {
   socket.on("getAllGroups", async (payload = {}) => {
     try {
       const {
-        search = "", 
+        search = "",
         page = 1,
         limit = 20,
-        includeOnline = true, 
+        includeOnline = true,
         sort = "recent", // "recent" = updatedAt desc, "name" = name asc, "members" = memberCount desc
       } = payload;
 
@@ -377,7 +378,7 @@ io.on("connection", (socket) => {
         });
       }
 
-      const messages = await Message.find({ groupId })
+      const messages = await GroupMessage.find({ groupId })
         .populate("senderId", "fullName profilePic")
         .sort({ createdAt: 1 });
 
@@ -440,7 +441,7 @@ io.on("connection", (socket) => {
         }
       }
 
-      const newMessage = new Message({
+      const newMessage = new GroupMessage({
         senderId,
         groupId,
         text,

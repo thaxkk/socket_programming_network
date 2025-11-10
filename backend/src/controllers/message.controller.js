@@ -6,7 +6,9 @@ import User from "../models/User.js";
 export const getAllContacts = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
+    const filteredUsers = await User.find({
+      _id: { $ne: loggedInUserId },
+    }).select("-password");
 
     res.status(200).json(filteredUsers);
   } catch (error) {
@@ -17,28 +19,35 @@ export const getAllContacts = async (req, res) => {
 
 export const getChatPartners = async (req, res) => {
   try {
-    const loggedInUserId = req.user._id;
+    const loggedInUserId = req.user?._id;
+    if (!loggedInUserId)
+      return res.status(401).json({ message: "Unauthorized" });
 
-    // find all the messages where the logged-in user is either sender or receiver
     const messages = await Message.find({
+      receiverId: { $exists: true, $ne: null },
       $or: [{ senderId: loggedInUserId }, { receiverId: loggedInUserId }],
-    });
+    })
+      .select("senderId receiverId")
+      .lean();
 
-    const chatPartnerIds = [
-      ...new Set(
-        messages.map((msg) =>
-          msg.senderId.toString() === loggedInUserId.toString()
-            ? msg.receiverId.toString()
-            : msg.senderId.toString()
-        )
-      ),
-    ];
+    const me = String(loggedInUserId);
+    const partnerIdSet = new Set();
 
-    const chatPartners = await User.find({ _id: { $in: chatPartnerIds } }).select("-password");
+    for (const m of messages) {
+      const s = m?.senderId?.toString?.();
+      const r = m?.receiverId?.toString?.();
+      if (!s || !r) continue; 
 
-    res.status(200).json(chatPartners);
+      if (s === me) partnerIdSet.add(r);
+      else if (r === me) partnerIdSet.add(s);
+    }
+
+    const partners = await User.find({
+      _id: { $in: [...partnerIdSet] },
+    }).select("-password");
+    res.status(200).json(partners);
   } catch (error) {
-    console.error("Error in getChatPartners: ", error.message);
+    console.error("Error in getChatPartners:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
