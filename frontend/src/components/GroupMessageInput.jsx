@@ -1,9 +1,10 @@
+// src/components/GroupMessageInput.jsx
 import { useRef, useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { ImageIcon, SendIcon, XIcon } from "lucide-react";
 import FallingEmojis from "./FallingEmojis";
 import useKeyboardSound from "../hooks/useKeyboardSound";
-import { useChatStore } from "../store/useChatStore"; // ใช้ flag เสียงเดิม
+import { useChatStore } from "../store/useChatStore";
 import { useGroupStore } from "../store/useGroupStore";
 
 /**
@@ -30,18 +31,21 @@ export default function GroupMessageInput({
   const { playRandomKeyStrokeSound } = useKeyboardSound();
   const { isSoundEnabled } = useChatStore();
 
-  const { sendGroupMessage, sendTypingInGroup } = useGroupStore();
+  // ✅ ใช้ selector เพื่อดึงฟังก์ชันจาก Zustand ให้เสถียร
+  const sendGroupMessage = useGroupStore((s) => s.sendGroupMessage);
+  const sendTypingInGroup = useGroupStore((s) => s.sendTypingInGroup);
 
   // typing indicator
   useEffect(() => {
-    if (!groupId) return;
+    if (!groupId || typeof sendTypingInGroup !== "function") return;
+
     const isTyping = !!text.trim();
     sendTypingInGroup({ groupId, username: undefined, isTyping });
-    const t = setTimeout(
-      () =>
-        sendTypingInGroup({ groupId, username: undefined, isTyping: false }),
-      1200
-    );
+
+    const t = setTimeout(() => {
+      sendTypingInGroup({ groupId, username: undefined, isTyping: false });
+    }, 1200);
+
     return () => clearTimeout(t);
   }, [text, groupId, sendTypingInGroup]);
 

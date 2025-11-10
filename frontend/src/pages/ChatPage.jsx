@@ -10,6 +10,7 @@ import ChatContainer from "../components/ChatContainer";
 import NoConversationPlaceholder from "../components/NoConversationPlaceholder";
 import GroupList from "../components/GroupList";
 import GroupChatContainer from "../components/GroupChatContainer";
+import CreateGroupButton from "../components/CreateGroupButton";
 
 function ChatPage() {
   const { activeTab, selectedUser } = useChatStore();
@@ -31,6 +32,11 @@ function ChatPage() {
             <GroupList />
           ) : null}
         </div>
+        {activeTab === "groups" && (
+          <div className="absolute bottom-4 right-4">
+            <CreateGroupButton />
+          </div>
+        )}
       </div>
 
       {/* RIGHT SIDE */}

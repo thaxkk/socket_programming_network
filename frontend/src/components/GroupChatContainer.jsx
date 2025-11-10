@@ -26,8 +26,8 @@ export default function GroupChatContainer() {
   useEffect(() => {
     if (!selectedGroup?._id) return;
     getGroupMessages(selectedGroup._id);
-    subscribeGroupEvents();
-    return () => unsubscribeGroupEvents();
+    subscribeGroupEvents(selectedGroup._id);
+    return () => unsubscribeGroupEvents(selectedGroup._id);
   }, [
     selectedGroup?._id,
     getGroupMessages,
@@ -39,32 +39,6 @@ export default function GroupChatContainer() {
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  // ยิง typing จาก text state นี้ (จะอัปเดตโดย GroupMessageInput ผ่าน prop onTyping ก็ได้ แต่ที่นี่เดิมตามโค้ด)
-  useEffect(() => {
-    if (!selectedGroup?._id) return;
-    if (text) {
-      sendTypingInGroup({
-        groupId: selectedGroup._id,
-        username: authUser?.fullName,
-        isTyping: true,
-      });
-      const t = setTimeout(() => {
-        sendTypingInGroup({
-          groupId: selectedGroup._id,
-          username: authUser?.fullName,
-          isTyping: false,
-        });
-      }, 1200);
-      return () => clearTimeout(t);
-    } else {
-      sendTypingInGroup({
-        groupId: selectedGroup._id,
-        username: authUser?.fullName,
-        isTyping: false,
-      });
-    }
-  }, [text, selectedGroup?._id, authUser?.fullName, sendTypingInGroup]);
 
   const typingUsersObj = groupTypingUsers[selectedGroup?._id] || {};
   const typingUsers = Object.values(typingUsersObj).filter(

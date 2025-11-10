@@ -43,6 +43,9 @@ export const useGroupStore = create((set, get) => ({
   // ---------- Typing indicators ----------
   groupTypingUsers: {}, // { [groupId]: { [userId]: username } }
 
+  // เก็บว่า group ไหนสมัครอยู่บ้าง (กัน subscribe ซ้ำ)
+  _subscribedGroupIds: new Set(),
+
   // =======================================================
   // Helpers
   // =======================================================
@@ -259,48 +262,58 @@ export const useGroupStore = create((set, get) => ({
     if (!socket) return;
 
     const { authUser } = useAuthStore.getState();
+
     if (!groupId) {
       toast.error("No group selected");
       return;
     }
+
     if (!text && !image) {
       toast.error("Text or image is required");
       return;
     }
 
+    const { groupMessages } = get();
     const tempId = `temp-${Date.now()}`;
-    const optimistic = {
+
+    const optimisticMessage = {
       _id: tempId,
       groupId,
       text,
       image,
-      senderId: { _id: authUser?._id, fullName: authUser?.fullName },
+      senderId: { _id: authUser._id, fullName: authUser.fullName },
       createdAt: new Date().toISOString(),
       isOptimistic: true,
     };
 
-    // push optimistic message
+    // ✅ Immediately update UI (optimistic)
     set((state) => {
       const prev = state.groupMessages[groupId] || [];
       return {
         groupMessages: {
           ...state.groupMessages,
-          [groupId]: [...prev, optimistic],
+          [groupId]: [...prev, optimisticMessage],
         },
       };
     });
 
-    socket.emit("sendGroupMessage", { groupId, text, image });
+    // ✅ Emit message via socket
+    socket.emit("sendGroupMessage", {
+      groupId,
+      text,
+      image,
+    });
 
+    // ✅ Listen for confirmation (one-time listener)
     socket.once("groupMessageSent", (res) => {
       if (res?.error) {
-        // remove optimistic
+        // ❌ Remove optimistic message on failure
         set((state) => {
           const prev = state.groupMessages[groupId] || [];
           return {
             groupMessages: {
               ...state.groupMessages,
-              [groupId]: prev.filter((m) => m._id !== tempId),
+              [groupId]: prev.filter((msg) => msg._id !== tempId),
             },
           };
         });
@@ -308,30 +321,29 @@ export const useGroupStore = create((set, get) => ({
         return;
       }
 
-      const real = res.message;
-      // replace optimistic
+      // ✅ Replace optimistic message with real one
+      const realMsg = res.message;
       set((state) => {
         const prev = state.groupMessages[groupId] || [];
-        const withoutTemp = prev.filter((m) => m._id !== tempId);
         return {
           groupMessages: {
             ...state.groupMessages,
-            [groupId]: [...withoutTemp, real],
+            [groupId]: [...prev.filter((msg) => msg._id !== tempId), realMsg],
           },
         };
       });
     });
 
-    // timeout fallback
+    // ✅ Handle timeout (10s fallback)
     setTimeout(() => {
       const current = get().groupMessages[groupId] || [];
-      if (current.some((m) => m._id === tempId)) {
+      if (current.some((msg) => msg._id === tempId)) {
         set((state) => {
           const prev = state.groupMessages[groupId] || [];
           return {
             groupMessages: {
               ...state.groupMessages,
-              [groupId]: prev.filter((m) => m._id !== tempId),
+              [groupId]: prev.filter((msg) => msg._id !== tempId),
             },
           };
         });
@@ -343,18 +355,33 @@ export const useGroupStore = create((set, get) => ({
   // =======================================================
   // REAL-TIME SUBSCRIPTIONS (newGroupMessage, typing)
   // =======================================================
-  subscribeGroupEvents: () => {
+  subscribeGroupEvents: (groupId) => {
     const socket = get()._ensureSocket();
-    if (!socket) return;
+    if (!socket || !groupId) return;
+
+    // กันสมัครซ้ำ group เดิม
+    if (get()._subscribedGroupIds?.has(groupId)) return;
+
+    // ลบ handler เดิมก่อนเสมอ แล้วค่อย on ใหม่ (กันซ้อน)
+    socket.off("newGroupMessage");
+    socket.off("user_typing_group");
+    socket.off("user_stopped_typing_group");
 
     // ---- new group messages ----
     const onNewGroupMessage = (msg) => {
       const gid = msg.groupId || msg.group?._id;
       if (!gid) return;
 
-      // ถ้าเปิดอยู่คนละกรุ๊ป ก็ยังคงอัปเดตแคชไว้ แต่ไม่เด้งเสียงก็ได้ (เพิ่มตามต้องการ)
+      // เก็บ cache ทุกห้อง แต่ dedupe ด้วย _id / clientId
       set((state) => {
         const prev = state.groupMessages[gid] || [];
+        const already = prev.some(
+          (m) =>
+            (msg?._id && m._id === msg._id) ||
+            (msg?.clientId && m.clientId === msg.clientId)
+        );
+        if (already) return {}; // ไม่อัปเดต
+
         return {
           groupMessages: { ...state.groupMessages, [gid]: [...prev, msg] },
         };
@@ -362,22 +389,24 @@ export const useGroupStore = create((set, get) => ({
     };
 
     // ---- typing indicators ----
-    const onTyping = ({ groupId, userId, username }) => {
+    const onTyping = ({ groupId: gid, userId, username }) => {
+      if (!gid) return;
       set((state) => {
-        const g = { ...(state.groupTypingUsers[groupId] || {}) };
-        g[userId] = username || "Someone";
+        const g = { ...(state.groupTypingUsers[gid] || {}) };
+        g[userId || username || "unknown"] = username || "Someone";
         return {
-          groupTypingUsers: { ...state.groupTypingUsers, [groupId]: g },
+          groupTypingUsers: { ...state.groupTypingUsers, [gid]: g },
         };
       });
     };
 
-    const onStopTyping = ({ groupId, userId }) => {
+    const onStopTyping = ({ groupId: gid, userId, username }) => {
+      if (!gid) return;
       set((state) => {
-        const g = { ...(state.groupTypingUsers[groupId] || {}) };
-        delete g[userId];
+        const g = { ...(state.groupTypingUsers[gid] || {}) };
+        delete g[userId || username || "unknown"];
         return {
-          groupTypingUsers: { ...state.groupTypingUsers, [groupId]: g },
+          groupTypingUsers: { ...state.groupTypingUsers, [gid]: g },
         };
       });
     };
@@ -386,30 +415,29 @@ export const useGroupStore = create((set, get) => ({
     socket.on("user_typing_group", onTyping);
     socket.on("user_stopped_typing_group", onStopTyping);
 
-    // เก็บ reference ไว้เผื่อถอด
-    set({
+    // เก็บ listener refs + mark subscribed
+    set((s) => ({
       _listeners: { onNewGroupMessage, onTyping, onStopTyping },
-    });
+      _subscribedGroupIds: new Set([...(s._subscribedGroupIds || []), groupId]),
+    }));
   },
 
-  unsubscribeGroupEvents: () => {
+  unsubscribeGroupEvents: (groupId) => {
     const socket = get()._ensureSocket();
     if (!socket) return;
+
     const listeners = get()._listeners || {};
     if (listeners.onNewGroupMessage)
       socket.off("newGroupMessage", listeners.onNewGroupMessage);
     if (listeners.onTyping) socket.off("user_typing_group", listeners.onTyping);
     if (listeners.onStopTyping)
       socket.off("user_stopped_typing_group", listeners.onStopTyping);
-    set({ _listeners: undefined });
-  },
 
-  // =======================================================
-  // TYPING: EMIT
-  // =======================================================
-  sendTypingInGroup: ({ groupId, username, isTyping }) => {
-    const socket = get()._ensureSocket();
-    if (!socket) return;
-    socket.emit("typing_group", { groupId, username, isTyping: !!isTyping });
+    // เอา groupId ออกจากชุดที่กำลัง subscribe
+    set((s) => {
+      const next = new Set(s._subscribedGroupIds || []);
+      if (groupId) next.delete(groupId);
+      return { _subscribedGroupIds: next, _listeners: undefined };
+    });
   },
 }));
