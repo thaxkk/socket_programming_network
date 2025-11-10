@@ -18,6 +18,8 @@ export const useGroupStore = create((set, get) => ({
   // ---------- UI/Selections ----------
   selectedGroup: null, // {_id, name, ...}
   setSelectedGroup: (g) => set({ selectedGroup: g }),
+  currentMembers: [],
+  currentMemberCount: 0,
 
   // ---------- Discovery / All Groups ----------
   allGroups: [], // รายการทุกกรุ๊ป (หน้า discover)
@@ -45,6 +47,7 @@ export const useGroupStore = create((set, get) => ({
 
   // เก็บว่า group ไหนสมัครอยู่บ้าง (กัน subscribe ซ้ำ)
   _subscribedGroupIds: new Set(),
+  _listeners: undefined, // เก็บ reference ของ global listeners (กัน off ผิด)
 
   // =======================================================
   // Helpers
@@ -217,6 +220,33 @@ export const useGroupStore = create((set, get) => ({
     if (!cached || cached.length === 0) {
       get().getGroupMessages(group._id);
     }
+  },
+
+  // =======================================================
+  // LEAVE GROUP (ถ้าเป็นเจ้าของฝั่ง BE จะลบกรุ๊ป)
+  // =======================================================
+  leaveGroupOrDelete: (groupId) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    // อัปเดตฝั่ง FE ทันที (optimistic): เอากรุ๊ปออกจาก myGroups และ unselect
+    set((s) => ({
+      myGroups: (s.myGroups || []).filter((g) => g._id !== groupId),
+      selectedGroup: s.selectedGroup?._id === groupId ? null : s.selectedGroup,
+    }));
+
+    socket.emit("leaveGroup", { groupId });
+    // ผลลัพธ์จริงจะมากับ "groupUpdated"/"groupDeleted" (ฟังใน global listeners ด้านล่าง)
+  },
+
+  // =======================================================
+  // GET GROUP MEMBERS (เปิด modal รายชื่อ)
+  // =======================================================
+  getGroupMembers: (groupId) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+    socket.emit("getGroupMembers", groupId);
+    // ผลลัพธ์จริงจะมากับ "groupMembersList" (ฟังใน global listeners ด้านล่าง)
   },
 
   // =======================================================
@@ -439,5 +469,55 @@ export const useGroupStore = create((set, get) => ({
       if (groupId) next.delete(groupId);
       return { _subscribedGroupIds: next, _listeners: undefined };
     });
+  },
+
+  // =======================================================
+  // GLOBAL GROUP EVENTS (memberCount realtime / delete / members list)
+  // =======================================================
+  bindGroupSocketEvents: () => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    // กันซ้อน: ถ้ามี listeners เก่าอยู่ ให้ off ก่อน
+    socket.off("groupUpdated");
+    socket.off("groupDeleted");
+    socket.off("groupMembersList");
+
+    // 1) อัปเดตจำนวนสมาชิกแบบ realtime
+    const onGroupUpdated = ({ groupId, memberCount, action }) => {
+      set((s) => {
+        const updateCount = (arr) =>
+          Array.isArray(arr)
+            ? arr.map((g) => (g._id === groupId ? { ...g, memberCount } : g))
+            : arr;
+        return {
+          myGroups: updateCount(s.myGroups),
+          allGroups: updateCount(s.allGroups),
+        };
+      });
+    };
+    // 2) เจ้าของลบกรุ๊ป → เคลียร์ออกจาก list + unselect ถ้าตรง
+    const onGroupDeleted = ({ groupId }) => {
+      set((s) => ({
+        myGroups: (s.myGroups || []).filter((g) => g._id !== groupId),
+        allGroups: (s.allGroups || []).filter((g) => g._id !== groupId),
+        selectedGroup:
+          s.selectedGroup?._id === groupId ? null : s.selectedGroup,
+      }));
+    };
+
+    // 3) รายชื่อสมาชิกทั้งหมด (จาก getGroupMembers)
+    const onGroupMembersList = ({ groupId, members, memberCount }) => {
+      set({
+        currentMembers: members || [],
+        currentMemberCount: memberCount || 0,
+      });
+    };
+
+    socket.on("groupUpdated", onGroupUpdated);
+    socket.on("groupDeleted", onGroupDeleted);
+    socket.on("groupMembersList", onGroupMembersList);
+
+    set({ _listeners: { onGroupUpdated, onGroupDeleted, onGroupMembersList } });
   },
 }));

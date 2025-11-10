@@ -222,6 +222,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  /*
   // ✅ Explicit join (users must join to become members)
   socket.on("joinGroup", async ({ groupId }) => {
     try {
@@ -265,6 +266,7 @@ io.on("connection", (socket) => {
       socket.emit("joinedGroup", { error: "Failed to join group" });
     }
   });
+  */
 
   // ============================================
   // GROUP CHAT - DISCOVER / GET ALL GROUPS (search + pagination)
@@ -470,6 +472,78 @@ io.on("connection", (socket) => {
       socket.emit("groupMessageSent", {
         error: "Failed to send group message",
       });
+    }
+  });
+
+  // 1️⃣ ออกจากกรุ๊ป (ถ้าเป็นเจ้าของ → delete)
+  socket.on("leaveGroup", async ({ groupId }) => {
+    try {
+      const group = await GroupChat.findById(groupId);
+      if (!group)
+        return socket.emit("groupActionError", { error: "Group not found" });
+
+      const userId = socket.user._id.toString();
+      const isOwner = group.createdBy.toString() === userId;
+
+      if (isOwner) {
+        // ลบกรุ๊ป + แจ้งสมาชิก
+        await GroupChat.findByIdAndDelete(groupId);
+        await GroupMessage.deleteMany({ groupId });
+        io.emit("groupDeleted", { groupId });
+      } else {
+        // ลบตัวเองออกจาก members
+        group.members = group.members.filter((m) => m.toString() !== userId);
+        await group.save();
+        io.emit("groupUpdated", {
+          groupId,
+          action: "leave",
+          memberCount: group.members.length,
+        });
+      }
+    } catch (err) {
+      console.log("Error in leaveGroup:", err);
+    }
+  });
+
+  // 2️⃣ ดึงสมาชิกทั้งหมดของกรุ๊ป
+  socket.on("getGroupMembers", async (groupId) => {
+    try {
+      const group = await GroupChat.findById(groupId).populate(
+        "members",
+        "_id fullName username profilePic"
+      );
+      if (!group)
+        return socket.emit("groupMembersError", { error: "Group not found" });
+      socket.emit("groupMembersList", {
+        groupId,
+        members: group.members,
+        memberCount: group.members.length,
+      });
+    } catch (err) {
+      console.log("Error in getGroupMembers:", err);
+    }
+  });
+
+  // 3️⃣ Realtime update member count (ใช้ emit จาก join/leave group)
+  socket.on("joinGroup", async ({ groupId }) => {
+    try {
+      const group = await GroupChat.findById(groupId);
+      if (!group)
+        return socket.emit("groupActionError", { error: "Group not found" });
+
+      const userId = socket.user._id.toString();
+      const already = group.members.some((m) => m.toString() === userId);
+      if (!already) {
+        group.members.push(userId);
+        await group.save();
+        io.emit("groupUpdated", {
+          groupId,
+          action: "join",
+          memberCount: group.members.length,
+        });
+      }
+    } catch (err) {
+      console.log("Error in joinGroup:", err);
     }
   });
 
