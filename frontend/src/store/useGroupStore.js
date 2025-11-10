@@ -1,0 +1,415 @@
+import { create } from "zustand";
+import toast from "react-hot-toast";
+import { useAuthStore } from "./useAuthStore";
+
+/**
+ * EVENT NAMES (ต้องตรงกับฝั่ง BE)
+ * - getAllGroups           -> allGroupsResult
+ * - getMyGroups            -> myGroupsHistory
+ * - createGroupChat        -> groupChatCreated
+ * - joinGroup              -> joinedGroup
+ * - getGroupMessages       -> groupMessagesHistory
+ * - sendGroupMessage       -> groupMessageSent
+ * - newGroupMessage        (push real-time)
+ * - user_typing_group / user_stopped_typing_group
+ */
+
+export const useGroupStore = create((set, get) => ({
+  // ---------- UI/Selections ----------
+  selectedGroup: null, // {_id, name, ...}
+  setSelectedGroup: (g) => set({ selectedGroup: g }),
+
+  // ---------- Discovery / All Groups ----------
+  allGroups: [], // รายการทุกกรุ๊ป (หน้า discover)
+  allGroupsPage: 1,
+  allGroupsLimit: 20,
+  allGroupsTotal: 0,
+  allGroupsHasNextPage: false,
+  allGroupsSearch: "",
+  allGroupsSort: "recent", // "recent" | "name" | "members"
+  includeOnline: true,
+
+  isAllGroupsLoading: false,
+
+  // ---------- My Groups ----------
+  myGroups: [], // เฉพาะกรุ๊ปที่เราเป็นสมาชิก
+  isMyGroupsLoading: false,
+
+  // ---------- Messages per group ----------
+  // เก็บเป็น map: { [groupId]: Message[] }
+  groupMessages: {},
+  isGroupMessagesLoading: false,
+
+  // ---------- Typing indicators ----------
+  groupTypingUsers: {}, // { [groupId]: { [userId]: username } }
+
+  // =======================================================
+  // Helpers
+  // =======================================================
+  _ensureSocket() {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) {
+      toast.error("Socket connection not available");
+      return null;
+    }
+    return socket;
+  },
+
+  // =======================================================
+  // DISCOVERY: GET ALL GROUPS (search + pagination + sort)
+  // =======================================================
+  setAllGroupsQuery: ({ search, sort, limit }) => {
+    const s = search !== undefined ? search : get().allGroupsSearch;
+    const so = sort || get().allGroupsSort;
+    const l = limit || get().allGroupsLimit;
+    set({ allGroupsSearch: s, allGroupsSort: so, allGroupsLimit: l });
+  },
+
+  getAllGroups: ({ page, search, sort, limit } = {}) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    const payload = {
+      page: Number(page ?? get().allGroupsPage) || 1,
+      limit: Number(limit ?? get().allGroupsLimit) || 20,
+      search: search ?? get().allGroupsSearch ?? "",
+      sort: sort ?? get().allGroupsSort,
+      includeOnline: get().includeOnline,
+    };
+
+    set({ isAllGroupsLoading: true });
+
+    // ป้องกันซ้อนหลายรอบ: ใช้ once
+    socket.emit("getAllGroups", payload);
+    socket.once("allGroupsResult", (res) => {
+      if (res?.error) {
+        toast.error(res.error || "Failed to fetch groups");
+        set({
+          isAllGroupsLoading: false,
+          allGroups: [],
+          allGroupsTotal: 0,
+          allGroupsHasNextPage: false,
+        });
+        return;
+      }
+
+      set({
+        isAllGroupsLoading: false,
+        allGroups: res.groups || [],
+        allGroupsPage: res.page ?? payload.page,
+        allGroupsLimit: res.limit ?? payload.limit,
+        allGroupsTotal: res.total ?? 0,
+        allGroupsHasNextPage: !!res.hasNextPage,
+      });
+    });
+
+    // timeout กันค้าง
+    setTimeout(() => {
+      if (get().isAllGroupsLoading) {
+        set({ isAllGroupsLoading: false });
+        toast.error("Failed to load groups");
+      }
+    }, 10000);
+  },
+
+  // =======================================================
+  // MY GROUPS
+  // =======================================================
+  getMyGroups: () => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    set({ isMyGroupsLoading: true });
+    socket.emit("getMyGroups");
+
+    socket.once("myGroupsHistory", (res) => {
+      if (res?.error) {
+        toast.error(res.error);
+        set({ myGroups: [], isMyGroupsLoading: false });
+        return;
+      }
+      set({
+        myGroups: res.groups || [],
+        isMyGroupsLoading: false,
+      });
+    });
+
+    setTimeout(() => {
+      if (get().isMyGroupsLoading) {
+        set({ isMyGroupsLoading: false });
+        toast.error("Failed to load my groups");
+      }
+    }, 10000);
+  },
+
+  // =======================================================
+  // CREATE GROUP
+  // =======================================================
+  createGroup: (name) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    if (!name || !name.trim()) {
+      toast.error("Group name is required");
+      return;
+    }
+
+    socket.emit("createGroupChat", { name: name.trim() });
+
+    socket.once("groupChatCreated", (res) => {
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+      const group = res.group;
+      toast.success(`Group "${group?.name}" created`);
+
+      // อัปเดต myGroups/selectedGroup ตามสะดวก
+      const myGroups = get().myGroups || [];
+      set({ myGroups: [group, ...myGroups] });
+
+      // auto select group
+      set({ selectedGroup: group });
+    });
+  },
+
+  // =======================================================
+  // JOIN GROUP
+  // =======================================================
+  joinGroup: (groupId) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    socket.emit("joinGroup", { groupId });
+
+    socket.once("joinedGroup", (res) => {
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+
+      // อัปเดต myGroups
+      const joined = res.group;
+      toast.success(res.message || "Joined group");
+      const existing = get().myGroups || [];
+      const exists = existing.find((g) => g._id === joined._id);
+      const next = exists ? existing : [joined, ...existing];
+
+      set({ myGroups: next });
+
+      // auto select group
+      set({ selectedGroup: joined });
+    });
+  },
+
+  // =======================================================
+  // OPEN GROUP (select + fetch messages)
+  // =======================================================
+  openGroup: (group) => {
+    if (!group) return;
+    set({ selectedGroup: group });
+
+    // ถ้ายังไม่เคย fetch ข้อความ ก็ไปดึงมา
+    const cached = get().groupMessages[group._id];
+    if (!cached || cached.length === 0) {
+      get().getGroupMessages(group._id);
+    }
+  },
+
+  // =======================================================
+  // GET GROUP MESSAGES
+  // =======================================================
+  getGroupMessages: (groupId) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    set({ isGroupMessagesLoading: true });
+
+    socket.emit("getGroupMessages", { groupId });
+
+    socket.once("groupMessagesHistory", (res) => {
+      if (res?.error) {
+        toast.error(res.error);
+        set({ isGroupMessagesLoading: false });
+        return;
+      }
+      const { messages = [], groupId: gid } = res || {};
+      set((state) => ({
+        groupMessages: {
+          ...state.groupMessages,
+          [gid || groupId]: messages,
+        },
+        isGroupMessagesLoading: false,
+      }));
+    });
+
+    setTimeout(() => {
+      if (get().isGroupMessagesLoading) {
+        set({ isGroupMessagesLoading: false });
+        toast.error("Failed to load group messages");
+      }
+    }, 10000);
+  },
+
+  // =======================================================
+  // SEND GROUP MESSAGE (optimistic UI)
+  // =======================================================
+  sendGroupMessage: ({ groupId, text, image }) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    const { authUser } = useAuthStore.getState();
+    if (!groupId) {
+      toast.error("No group selected");
+      return;
+    }
+    if (!text && !image) {
+      toast.error("Text or image is required");
+      return;
+    }
+
+    const tempId = `temp-${Date.now()}`;
+    const optimistic = {
+      _id: tempId,
+      groupId,
+      text,
+      image,
+      senderId: { _id: authUser?._id, fullName: authUser?.fullName },
+      createdAt: new Date().toISOString(),
+      isOptimistic: true,
+    };
+
+    // push optimistic message
+    set((state) => {
+      const prev = state.groupMessages[groupId] || [];
+      return {
+        groupMessages: {
+          ...state.groupMessages,
+          [groupId]: [...prev, optimistic],
+        },
+      };
+    });
+
+    socket.emit("sendGroupMessage", { groupId, text, image });
+
+    socket.once("groupMessageSent", (res) => {
+      if (res?.error) {
+        // remove optimistic
+        set((state) => {
+          const prev = state.groupMessages[groupId] || [];
+          return {
+            groupMessages: {
+              ...state.groupMessages,
+              [groupId]: prev.filter((m) => m._id !== tempId),
+            },
+          };
+        });
+        toast.error(res.error);
+        return;
+      }
+
+      const real = res.message;
+      // replace optimistic
+      set((state) => {
+        const prev = state.groupMessages[groupId] || [];
+        const withoutTemp = prev.filter((m) => m._id !== tempId);
+        return {
+          groupMessages: {
+            ...state.groupMessages,
+            [groupId]: [...withoutTemp, real],
+          },
+        };
+      });
+    });
+
+    // timeout fallback
+    setTimeout(() => {
+      const current = get().groupMessages[groupId] || [];
+      if (current.some((m) => m._id === tempId)) {
+        set((state) => {
+          const prev = state.groupMessages[groupId] || [];
+          return {
+            groupMessages: {
+              ...state.groupMessages,
+              [groupId]: prev.filter((m) => m._id !== tempId),
+            },
+          };
+        });
+        toast.error("Failed to send group message");
+      }
+    }, 10000);
+  },
+
+  // =======================================================
+  // REAL-TIME SUBSCRIPTIONS (newGroupMessage, typing)
+  // =======================================================
+  subscribeGroupEvents: () => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+
+    // ---- new group messages ----
+    const onNewGroupMessage = (msg) => {
+      const gid = msg.groupId || msg.group?._id;
+      if (!gid) return;
+
+      // ถ้าเปิดอยู่คนละกรุ๊ป ก็ยังคงอัปเดตแคชไว้ แต่ไม่เด้งเสียงก็ได้ (เพิ่มตามต้องการ)
+      set((state) => {
+        const prev = state.groupMessages[gid] || [];
+        return {
+          groupMessages: { ...state.groupMessages, [gid]: [...prev, msg] },
+        };
+      });
+    };
+
+    // ---- typing indicators ----
+    const onTyping = ({ groupId, userId, username }) => {
+      set((state) => {
+        const g = { ...(state.groupTypingUsers[groupId] || {}) };
+        g[userId] = username || "Someone";
+        return {
+          groupTypingUsers: { ...state.groupTypingUsers, [groupId]: g },
+        };
+      });
+    };
+
+    const onStopTyping = ({ groupId, userId }) => {
+      set((state) => {
+        const g = { ...(state.groupTypingUsers[groupId] || {}) };
+        delete g[userId];
+        return {
+          groupTypingUsers: { ...state.groupTypingUsers, [groupId]: g },
+        };
+      });
+    };
+
+    socket.on("newGroupMessage", onNewGroupMessage);
+    socket.on("user_typing_group", onTyping);
+    socket.on("user_stopped_typing_group", onStopTyping);
+
+    // เก็บ reference ไว้เผื่อถอด
+    set({
+      _listeners: { onNewGroupMessage, onTyping, onStopTyping },
+    });
+  },
+
+  unsubscribeGroupEvents: () => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+    const listeners = get()._listeners || {};
+    if (listeners.onNewGroupMessage)
+      socket.off("newGroupMessage", listeners.onNewGroupMessage);
+    if (listeners.onTyping) socket.off("user_typing_group", listeners.onTyping);
+    if (listeners.onStopTyping)
+      socket.off("user_stopped_typing_group", listeners.onStopTyping);
+    set({ _listeners: undefined });
+  },
+
+  // =======================================================
+  // TYPING: EMIT
+  // =======================================================
+  sendTypingInGroup: ({ groupId, username, isTyping }) => {
+    const socket = get()._ensureSocket();
+    if (!socket) return;
+    socket.emit("typing_group", { groupId, username, isTyping: !!isTyping });
+  },
+}));
