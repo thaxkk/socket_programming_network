@@ -24,7 +24,7 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e7, // 10MB
   pingTimeout: 60000,
   pingInterval: 25000,
-  transports: ['websocket', 'polling'],
+  transports: ["websocket", "polling"],
   allowUpgrades: true,
 });
 
@@ -52,7 +52,7 @@ io.on("connection", (socket) => {
   console.log(`A user ${userFullName} connected`);
   console.log("Socket ID:", socket.id);
   console.log("User ID:", userId);
-  
+
   if (userId) {
     userSocketMap[userId] = socket.id;
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
@@ -88,7 +88,9 @@ io.on("connection", (socket) => {
 
       // Validation
       if (!text && !image) {
-        return socket.emit("messageSent", { error: "Text or image is required" });
+        return socket.emit("messageSent", {
+          error: "Text or image is required",
+        });
       }
 
       if (senderId.toString() === receiverId.toString()) {
@@ -106,47 +108,52 @@ io.on("connection", (socket) => {
       let imageUrl;
       if (image) {
         try {
-          if (!image.startsWith('data:image')) {
-            return socket.emit("messageSent", { 
-              error: "Invalid image format" 
+          if (!image.startsWith("data:image")) {
+            return socket.emit("messageSent", {
+              error: "Invalid image format",
             });
           }
 
           const imageSizeInMB = (image.length * 0.75) / (1024 * 1024);
-          console.log(`📤 Uploading image (${imageSizeInMB.toFixed(2)}MB) from ${userFullName}...`);
+          console.log(
+            `📤 Uploading image (${imageSizeInMB.toFixed(
+              2
+            )}MB) from ${userFullName}...`
+          );
 
           if (imageSizeInMB > 5) {
-            return socket.emit("messageSent", { 
-              error: "Image too large. Please try a smaller image." 
+            return socket.emit("messageSent", {
+              error: "Image too large. Please try a smaller image.",
             });
           }
 
           const uploadResponse = await cloudinary.uploader.upload(image, {
-            folder: 'chat-app/messages',
-            resource_type: 'auto',
+            folder: "chat-app/messages",
+            resource_type: "auto",
             transformation: [
-              { width: 1024, height: 1024, crop: 'limit' },
-              { quality: 'auto:good' },
-              { fetch_format: 'auto' }
+              { width: 1024, height: 1024, crop: "limit" },
+              { quality: "auto:good" },
+              { fetch_format: "auto" },
             ],
-            timeout: 60000
+            timeout: 60000,
           });
 
           imageUrl = uploadResponse.secure_url;
-          console.log(`✅ Image uploaded successfully: ${imageUrl.substring(0, 50)}...`);
-
+          console.log(
+            `✅ Image uploaded successfully: ${imageUrl.substring(0, 50)}...`
+          );
         } catch (uploadError) {
           console.error("❌ Cloudinary upload error:", uploadError);
-          
+
           let errorMessage = "Failed to upload image";
           if (uploadError.http_code === 413) {
             errorMessage = "Image too large";
-          } else if (uploadError.message?.includes('timeout')) {
+          } else if (uploadError.message?.includes("timeout")) {
             errorMessage = "Upload timeout. Please try again";
           } else if (uploadError.error?.message) {
             errorMessage = uploadError.error.message;
           }
-          
+
           return socket.emit("messageSent", { error: errorMessage });
         }
       }
@@ -188,7 +195,9 @@ io.on("connection", (socket) => {
       const creatorId = userId;
 
       if (!name || !name.trim()) {
-        return socket.emit("groupChatCreated", { error: "Group name is required" });
+        return socket.emit("groupChatCreated", {
+          error: "Group name is required",
+        });
       }
 
       // ✅ REQUIREMENT: Only creator is initial member
@@ -206,7 +215,6 @@ io.on("connection", (socket) => {
 
       // Creator auto-joins the socket room
       socket.join(`group:${groupChat._id}`);
-
     } catch (error) {
       console.log("Error in createGroupChat socket event:", error.message);
       socket.emit("groupChatCreated", { error: "Failed to create group chat" });
@@ -221,8 +229,8 @@ io.on("connection", (socket) => {
         return socket.emit("joinedGroup", { error: "Group chat not found" });
       }
 
-      const isMember = groupChat.members.some(m => m.toString() === userId);
-      
+      const isMember = groupChat.members.some((m) => m.toString() === userId);
+
       if (!isMember) {
         // Add user to members
         groupChat.members.push(userId);
@@ -234,29 +242,115 @@ io.on("connection", (socket) => {
       socket.join(`group:${groupId}`);
 
       // Send confirmation
-      socket.emit("joinedGroup", { 
+      socket.emit("joinedGroup", {
         group: groupChat,
-        message: isMember ? "Already a member" : "Joined successfully"
+        message: isMember ? "Already a member" : "Joined successfully",
       });
 
       // Notify all members in the room
       socket.to(`group:${groupId}`).emit("memberJoined", {
         groupId,
         userId,
-        username: userFullName
+        username: userFullName,
       });
-
     } catch (error) {
       console.log("Error in joinGroup socket event:", error.message);
       socket.emit("joinedGroup", { error: "Failed to join group" });
     }
   });
 
+  // ============================================
+  // GROUP CHAT - DISCOVER / GET ALL GROUPS (search + pagination)
+  // ============================================
+  /**
+   * Client emits:
+   *  socket.emit("getAllGroups", { search: "dev", page: 1, limit: 20 });
+   *
+   * Server responds:
+   *  socket.on("allGroupsResult", { groups, page, limit, total, hasNextPage })
+   */
+  socket.on("getAllGroups", async (payload = {}) => {
+    try {
+      const {
+        search = "", 
+        page = 1,
+        limit = 20,
+        includeOnline = true, 
+        sort = "recent", // "recent" = updatedAt desc, "name" = name asc, "members" = memberCount desc
+      } = payload;
+
+      // สร้าง query: ถ้ามี search ให้ regex ที่ name
+      const query = search?.trim()
+        ? { name: { $regex: search.trim(), $options: "i" } }
+        : {};
+
+      // เลือก sort
+      let sortOption = { updatedAt: -1 };
+      if (sort === "name") sortOption = { name: 1 };
+      // sort ตามจำนวนสมาชิกต้องคำนวณภายหลัง จึงใช้ recent/name ก่อน แล้วค่อยจัดลำดับในหน่วยความจำถ้าจำเป็น
+
+      const pageNum = Number(page) > 0 ? Number(page) : 1;
+      const limitNum = Math.min(Number(limit) || 20, 100); // กัน limit โหดเกิน
+
+      // นับ total สำหรับหน้า
+      const total = await GroupChat.countDocuments(query);
+
+      // ดึงข้อมูลหน้าที่ต้องการ
+      const docs = await GroupChat.find(query)
+        .select("name createdBy members updatedAt") // ฟิลด์พอประมาณ
+        .populate("createdBy", "fullName profilePic") // โชว์ชื่อคนสร้างได้
+        .sort(sortOption)
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean();
+
+      // map เป็น DTO + คำนวณสถานะเสริม
+      const me = socket.userId?.toString();
+      let groups = docs.map((g) => {
+        const memberIds = (g.members || []).map((m) => m.toString());
+        const isMember = !!memberIds.find((id) => id === me);
+        const memberCount = memberIds.length;
+        const onlineCount = includeOnline
+          ? getOnlineUsersInGroup(g._id.toString(), memberIds).length
+          : undefined;
+
+        return {
+          _id: g._id,
+          name: g.name,
+          createdBy: g.createdBy, // { _id, fullName, profilePic } (จาก populate)
+          memberCount,
+          isMember,
+          ...(includeOnline ? { onlineCount } : {}),
+          updatedAt: g.updatedAt,
+        };
+      });
+
+      // ถ้าขอ sort ตามจำนวนสมาชิก
+      if (sort === "members") {
+        groups = groups.sort((a, b) => b.memberCount - a.memberCount);
+      }
+
+      const hasNextPage = pageNum * limitNum < total;
+
+      socket.emit("allGroupsResult", {
+        groups,
+        page: pageNum,
+        limit: limitNum,
+        total,
+        hasNextPage,
+      });
+    } catch (error) {
+      console.error("Error in getAllGroups:", error.message);
+      socket.emit("allGroupsResult", { error: "Failed to fetch all groups" });
+    }
+  });
+
   // ✅ Get my groups
   socket.on("getMyGroups", async () => {
     try {
-      const groups = await GroupChat.find({ members: userId })
-        .sort({ updatedAt: -1 });
+      const groups = await GroupChat.find({ members: userId }).sort({
+        updatedAt: -1,
+      });
 
       socket.emit("myGroupsHistory", { groups });
     } catch (error) {
@@ -271,13 +365,15 @@ io.on("connection", (socket) => {
       // ✅ REQUIREMENT: Verify user is a member
       const groupChat = await GroupChat.findById(groupId);
       if (!groupChat) {
-        return socket.emit("groupMessagesHistory", { error: "Group chat not found" });
+        return socket.emit("groupMessagesHistory", {
+          error: "Group chat not found",
+        });
       }
 
-      const isMember = groupChat.members.some(m => m.toString() === userId);
+      const isMember = groupChat.members.some((m) => m.toString() === userId);
       if (!isMember) {
-        return socket.emit("groupMessagesHistory", { 
-          error: "You are not a member of this group" 
+        return socket.emit("groupMessagesHistory", {
+          error: "You are not a member of this group",
         });
       }
 
@@ -288,7 +384,9 @@ io.on("connection", (socket) => {
       socket.emit("groupMessagesHistory", { messages, groupId });
     } catch (error) {
       console.log("Error in getGroupMessages socket handler:", error.message);
-      socket.emit("groupMessagesHistory", { error: "Failed to fetch group messages" });
+      socket.emit("groupMessagesHistory", {
+        error: "Failed to fetch group messages",
+      });
     }
   });
 
@@ -301,10 +399,12 @@ io.on("connection", (socket) => {
       // ✅ REQUIREMENT: Verify user is a member
       const groupChat = await GroupChat.findById(groupId);
       if (!groupChat) {
-        return socket.emit("groupMessageSent", { error: "Group chat not found" });
+        return socket.emit("groupMessageSent", {
+          error: "Group chat not found",
+        });
       }
 
-      const isMember = groupChat.members.some(m => m.toString() === senderId);
+      const isMember = groupChat.members.some((m) => m.toString() === senderId);
       if (!isMember) {
         return socket.emit("groupMessageSent", {
           error: "You are not a member of this group",
@@ -312,7 +412,9 @@ io.on("connection", (socket) => {
       }
 
       if (!text && !image) {
-        return socket.emit("groupMessageSent", { error: "Text or image is required" });
+        return socket.emit("groupMessageSent", {
+          error: "Text or image is required",
+        });
       }
 
       // Upload image if provided
@@ -320,14 +422,14 @@ io.on("connection", (socket) => {
       if (image) {
         try {
           const uploadResponse = await cloudinary.uploader.upload(image, {
-            folder: 'chat-app/group-messages',
-            resource_type: 'auto',
+            folder: "chat-app/group-messages",
+            resource_type: "auto",
             transformation: [
-              { width: 1024, height: 1024, crop: 'limit' },
-              { quality: 'auto:good' },
-              { fetch_format: 'auto' }
+              { width: 1024, height: 1024, crop: "limit" },
+              { quality: "auto:good" },
+              { fetch_format: "auto" },
             ],
-            timeout: 60000
+            timeout: 60000,
           });
           imageUrl = uploadResponse.secure_url;
         } catch (uploadError) {
@@ -354,11 +456,14 @@ io.on("connection", (socket) => {
       // Send acknowledgment
       socket.emit("groupMessageSent", { message: newMessage });
 
-      console.log(`✅ Group message sent in ${groupChat.name} by ${userFullName}`);
-
+      console.log(
+        `✅ Group message sent in ${groupChat.name} by ${userFullName}`
+      );
     } catch (error) {
       console.log("Error in sendGroupMessage socket event:", error.message);
-      socket.emit("groupMessageSent", { error: "Failed to send group message" });
+      socket.emit("groupMessageSent", {
+        error: "Failed to send group message",
+      });
     }
   });
 
