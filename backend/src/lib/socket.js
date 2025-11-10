@@ -403,7 +403,6 @@ io.on("connection", (socket) => {
       const { groupId, text, image } = messageData;
       const senderId = userId;
 
-      // ✅ REQUIREMENT: Verify user is a member
       const groupChat = await GroupChat.findById(groupId);
       if (!groupChat) {
         return socket.emit("groupMessageSent", {
@@ -424,7 +423,6 @@ io.on("connection", (socket) => {
         });
       }
 
-      // Upload image if provided
       let imageUrl;
       if (image) {
         try {
@@ -457,10 +455,11 @@ io.on("connection", (socket) => {
       await newMessage.save();
       await newMessage.populate("senderId", "fullName profilePic");
 
-      // ✅ REQUIREMENT: Broadcast only to members in the room
-      io.to(`group:${groupId}`).emit("newGroupMessage", newMessage);
+      // ✅ ผู้ส่งต้อง join room นี้ไว้ก่อนหน้านี้ด้วย: socket.join(`group:${groupId}`)
+      // ✅ กระจายให้สมาชิกคนอื่น (ไม่รวมผู้ส่ง)
+      socket.to(`group:${groupId}`).emit("newGroupMessage", newMessage);
 
-      // Send acknowledgment
+      // ✅ ส่ง ack ให้ "ผู้ส่ง" เท่านั้น
       socket.emit("groupMessageSent", { message: newMessage });
 
       console.log(
