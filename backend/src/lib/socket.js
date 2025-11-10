@@ -225,34 +225,40 @@ io.on("connection", (socket) => {
   // ✅ Explicit join (users must join to become members)
   socket.on("joinGroup", async ({ groupId }) => {
     try {
-      const groupChat = await GroupChat.findById(groupId);
+      if (!groupId) {
+        return socket.emit("joinedGroup", { error: "groupId is required" });
+      }
+
+      const userId = String(socket.user._id);
+      const room = `group:${groupId}`;
+
+      // อัปเดตแบบ atomic + กันซ้ำสมาชิก โดยไม่ trigger full validation ของทั้งเอกสาร
+      const groupChat = await GroupChat.findByIdAndUpdate(
+        groupId,
+        { $addToSet: { members: userId } },
+        { new: true } // ไม่ใส่ runValidators เพื่อเลี่ยง required ของฟิลด์ที่ไม่ได้แก้
+      );
+
       if (!groupChat) {
         return socket.emit("joinedGroup", { error: "Group chat not found" });
       }
 
-      const isMember = groupChat.members.some((m) => m.toString() === userId);
+      const isMember = groupChat.members.some((m) => String(m) === userId);
 
-      if (!isMember) {
-        // Add user to members
-        groupChat.members.push(userId);
-        await groupChat.save();
-        console.log(`✅ ${userFullName} joined group: ${groupChat.name}`);
-      }
+      // เข้าห้อง socket
+      socket.join(room);
 
-      // Join socket room for real-time updates
-      socket.join(`group:${groupId}`);
-
-      // Send confirmation
+      // ตอบกลับผู้ที่ join
       socket.emit("joinedGroup", {
         group: groupChat,
         message: isMember ? "Already a member" : "Joined successfully",
       });
 
-      // Notify all members in the room
-      socket.to(`group:${groupId}`).emit("memberJoined", {
+      // แจ้งสมาชิกคนอื่นในห้อง
+      socket.to(room).emit("memberJoined", {
         groupId,
         userId,
-        username: userFullName,
+        username: socket.user.fullName,
       });
     } catch (error) {
       console.log("Error in joinGroup socket event:", error.message);
