@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@property --border-angle {
+  inherits: false;
+  initial-value: 0deg;
+  syntax: "<angle>";
+}
+
+.input {
+  @apply w-full bg-slate-800/5 border border-slate-500 rounded-lg py-2 pl-10 pr-4 text-black placeholder:text-slate-400 focus:ring-2 focus:ring-[#8A522E] focus:border-transparent;
+}
+
+.auth-input-icon {
+  @apply absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 size-5;
+}
+
+.auth-input-label {
+  @apply block text-sm font-medium text-black mb-2;
+}
+
+.auth-badge {
+  @apply inline-flex items-center px-3 py-1 text-xs font-medium rounded-full bg-cyan-500/20 text-cyan-300;
+}
+
+.auth-btn {
+  @apply w-full bg-[#8A522E] text-white rounded-lg py-2.5 font-medium
+  hover:bg-[#6C4025] focus:ring-2 focus:ring-cyan-500;
+}
+
+.auth-link {
+  @apply px-4 py-2 inline-block bg-[#8A522E]/20 rounded-lg text-[#8A522E]/70
+  hover:text-[#52311D] text-sm transition-colors;
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 8s ease infinite;
+}
+
+@keyframes fall {
+  0% {
+    opacity: 0;
+    transform: translateY(0) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.emoji-fall {
+  animation: fall 3.5s ease-in forwards;
+  font-size: 2rem;
+  position: absolute;
+  will-change: transform, opacity;
+}
+
+
+
