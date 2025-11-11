@@ -7,9 +7,6 @@ export const useChatStore = create((set, get) => ({
   allContacts: [],
   chats: [],
   messages: [],
-  groups: [],
-  selectedGroup: null,
-  isGroupsLoading: false,
 
   activeTab: "chats",
   selectedUser: null,
@@ -25,7 +22,6 @@ export const useChatStore = create((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedUser: (selectedUser) => set({ selectedUser }),
   setSelectedGroup: (selectedGroup) => set({ selectedGroup }),
-
 
   getAllContacts: async () => {
     set({ isUsersLoading: true });
@@ -47,23 +43,6 @@ export const useChatStore = create((set, get) => ({
       toast.error(error.response.data.message);
     } finally {
       set({ isUsersLoading: false });
-    }
-  },
-
-  getMyGroups: async () => {
-    set({ isGroupsLoading: true });
-    try {
-      const mockGroups = [
-        { _id: "1", groupName: "Frontend Team" },
-        { _id: "2", groupName: "Drama Cast" },
-      ];
-      // ถ้ามี API จริง: const res = await axiosInstance.get("/groups/my");
-      // set({ groups: res.data });
-      set({ groups: mockGroups });
-    } catch (error) {
-      console.error("getMyGroups error:", error);
-    } finally {
-      set({ isGroupsLoading: false });
     }
   },
 
@@ -167,7 +146,8 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
 
     socket.on("newMessage", (newMessage) => {
-      const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
+      const isMessageSentFromSelectedUser =
+        newMessage.senderId === selectedUser._id;
       if (!isMessageSentFromSelectedUser) return;
 
       const currentMessages = get().messages;
@@ -177,7 +157,9 @@ export const useChatStore = create((set, get) => ({
         const notificationSound = new Audio("/sounds/notification.mp3");
 
         notificationSound.currentTime = 0; // reset to start
-        notificationSound.play().catch((e) => console.log("Audio play failed:", e));
+        notificationSound
+          .play()
+          .catch((e) => console.log("Audio play failed:", e));
       }
     });
   },

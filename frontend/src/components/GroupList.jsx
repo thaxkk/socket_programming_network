@@ -1,36 +1,117 @@
-import { useEffect } from "react";
-import { useChatStore } from "../store/useChatStore";
-import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
-import NoChatsFound from "./NoChatsFound";
+// src/components/GroupList.jsx
+import { useEffect, useMemo } from "react";
+import { useGroupStore } from "@/store/useGroupStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import GroupCard from "./GroupCard";
 
-function GroupList() {
-  const { getMyGroups, groups, isGroupsLoading, setSelectedGroup } = useChatStore();
+export default function GroupList() {
+  const {
+    myGroups,
+    allGroups,
+    isMyGroupsLoading,
+    isAllGroupsLoading,
+    currentMembers,
+    currentMemberCount,
+    getMyGroups,
+    getAllGroups,
+    joinGroup,
+    bindGroupSocketEvents,
+    leaveGroupOrDelete,
+    getGroupMembers,
+    openGroup,
+  } = useGroupStore();
+
+  const authUser = useAuthStore((s) => s.authUser);
 
   useEffect(() => {
+    bindGroupSocketEvents();
     getMyGroups();
-  }, [getMyGroups]);
+    getAllGroups();
+  }, [bindGroupSocketEvents, getMyGroups, getAllGroups]);
 
-  if (isGroupsLoading) return <UsersLoadingSkeleton />;
-  if (groups.length === 0) return <NoChatsFound message="No groups found" />;
+  const myGroupIdSet = useMemo(
+    () => new Set((myGroups || []).map((g) => g._id)),
+    [myGroups]
+  );
+
+  const handleShowMembers = (groupId) => {
+    getGroupMembers(groupId);
+  };
+  const handleLeaveOrDelete = (groupId) => {
+    leaveGroupOrDelete(groupId);
+  };
+  const handleOpen = (group) => {
+    openGroup(group);
+  };
+  const handleJoin = async (group) => {
+    joinGroup(group._id);
+  };
+
+  const loading = isMyGroupsLoading || isAllGroupsLoading;
+  const displayGroups =
+    allGroups && allGroups.length > 0 ? allGroups : myGroups || [];
+
+  const getId = (v) => (typeof v === "string" ? v : v?._id);
+  const nameSort = (a, b) =>
+    (a?.name || "").localeCompare(b?.name || "", undefined, {
+      sensitivity: "base",
+    });
+
+  // --- จัดกลุ่มและเรียงลำดับ: ฉันสร้าง -> ฉันอยู่ -> ฉันยังไม่ได้อยู่ ---
+  const buckets = useMemo(() => {
+    const owned = [];
+    const member = [];
+    const others = [];
+    const me = authUser?._id;
+
+    for (const g of displayGroups || []) {
+      const isOwner = getId(g?.createdBy) === me;
+      const isMember = isOwner || myGroupIdSet.has(g?._id);
+      if (isOwner) owned.push(g);
+      else if (isMember) member.push(g);
+      else others.push(g);
+    }
+
+    owned.sort(nameSort);
+    member.sort(nameSort);
+    others.sort(nameSort);
+
+    return [...owned, ...member, ...others];
+  }, [displayGroups, authUser?._id, myGroupIdSet]);
 
   return (
-    <>
-      {groups.map((group) => (
-        <div
-          key={group._id}
-          className="bg-[#8A522E]/20 p-4 rounded-lg cursor-pointer hover:bg-[#8A522E]/5 transition-colors"
-          onClick={() => setSelectedGroup(group)}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-[#8A522E]/70 flex items-center justify-center text-white font-semibold">
-              {group.groupName?.charAt(0).toUpperCase() || "G"}
-            </div>
-            <h4 className="text-black font-medium truncate">{group.groupName}</h4>
+    <div className="space-y-4">
+      <section>
+        <h3 className="text-sm font-semibold text-neutral-700 mb-2">Groups</h3>
+
+        {loading ? (
+          <div className="text-xs text-neutral-500">Loading groups…</div>
+        ) : buckets.length === 0 ? (
+          <div className="text-xs text-neutral-500">No groups found.</div>
+        ) : (
+          <div className="space-y-3">
+            {buckets.map((g) => {
+              const isOwner = getId(g?.createdBy) === authUser?._id;
+              const isMember = isOwner || myGroupIdSet.has(g._id);
+              return (
+                <GroupCard
+                  key={g._id}
+                  group={g}
+                  currentUserId={authUser?._id}
+                  onOpen={handleOpen}
+                  onShowMembers={handleShowMembers}
+                  onLeaveOrDelete={handleLeaveOrDelete}
+                  onJoin={() => handleJoin(g)}
+                  forceIsMember={isMember}
+                  forceIsOwner={isOwner}
+                  members={currentMembers}
+                  memberCount={currentMemberCount}
+                />
+              );
+            })}
           </div>
-        </div>
-      ))}
-    </>
+        )}
+      </section>
+    </div>
   );
 }
-
-export default GroupList;
