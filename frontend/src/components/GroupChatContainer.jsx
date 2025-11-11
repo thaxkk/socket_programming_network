@@ -7,6 +7,7 @@ import NoGroupChatHistoryPlaceholder from "./NoGroupChatHistoryPlaceholder";
 import GroupMessageInput from "./GroupMessageInput";
 
 export default function GroupChatContainer() {
+  const { authUser } = useAuthStore();
   const {
     selectedGroup,
     getGroupMessages,
@@ -15,12 +16,8 @@ export default function GroupChatContainer() {
     subscribeGroupEvents,
     unsubscribeGroupEvents,
     groupTypingUsers,
-    sendTypingInGroup,
-    setSelectedGroup,
   } = useGroupStore();
 
-  const { authUser } = useAuthStore();
-  const [text, setText] = useState(""); // ใช้แค่ส่ง typing
   const messageEndRef = useRef(null);
 
   useEffect(() => {
@@ -36,46 +33,56 @@ export default function GroupChatContainer() {
   ]);
 
   const messages = groupMessages[selectedGroup?._id] || [];
+  const typingUsersObj = groupTypingUsers?.[selectedGroup?._id] || {};
+  const typingUsers = Object.values(typingUsersObj);
+
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const typingUsersObj = groupTypingUsers[selectedGroup?._id] || {};
-  const typingUsers = Object.values(typingUsersObj).filter(
-    (n) => n && n !== authUser?.fullName
-  );
-  const typingText =
-    typingUsers.length === 0
-      ? ""
-      : typingUsers.length === 1
-      ? `${typingUsers[0]} is typing...`
-      : "Multiple people are typing...";
+  const typingNames = Object.values(typingUsersObj)
+    .filter(Boolean)
+    .map((u) => u?.username || u?.fullName)
+    .filter(Boolean);
+
+  if (!selectedGroup?._id) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-sm opacity-70">Select a group to start chatting</p>
+      </div>
+    );
+  }
 
   return (
     <>
-      <GroupChatHeader
-        group={selectedGroup}
-        typingText={typingText}
-        onClose={() => setSelectedGroup(null)}
-      />
+      <GroupChatHeader group={selectedGroup} />
 
-      <div className="flex-1 overflow-y-auto py-6 px-4 sm:px-6">
-        {messages.length > 0 && !isGroupMessagesLoading ? (
-          <div className="w-full space-y-6">
+      <div className="px-4 sm:px-6 py-4 overflow-y-auto h-[calc(100vh-220px)]">
+        {messages.length > 0 ? (
+          <div className="space-y-4">
             {messages.map((msg) => {
               const isMine =
                 (typeof msg.senderId === "string" &&
                   msg.senderId === authUser?._id) ||
                 (typeof msg.senderId === "object" &&
                   msg.senderId?._id === authUser?._id);
-              const displayName =
-                typeof msg.senderId === "object" ? msg.senderId.fullName : "";
+
+              const displayName = msg.senderId.fullName;
+              const avatarUrl = msg.senderId.profilePic || "/avatar.png";
 
               return (
                 <div
-                  key={msg._id}
+                  key={msg._id || `${msg.createdAt}-${Math.random()}`}
                   className={`chat ${isMine ? "chat-end" : "chat-start"}`}
                 >
+                  {!isMine && (
+                    <div className="chat-image avatar">
+                      <div className="w-10 rounded-full">
+                        <img src={avatarUrl} alt={displayName || "avatar"} />
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     className={`chat-bubble relative ${
                       isMine
@@ -83,11 +90,14 @@ export default function GroupChatContainer() {
                         : "bg-[#A9CC9C] text-black"
                     }`}
                   >
+                    {/* ชื่อผู้ส่ง (ถ้ามี) */}
                     {!isMine && displayName && (
                       <p className="text-xs font-semibold opacity-80 mb-1">
                         {displayName}
                       </p>
                     )}
+
+                    {/* รูปภาพที่แนบมา */}
                     {msg.image && (
                       <img
                         src={msg.image}
@@ -95,36 +105,39 @@ export default function GroupChatContainer() {
                         className="rounded-lg h-48 object-cover"
                       />
                     )}
+
+                    {/* ข้อความ */}
                     {msg.text && (
                       <p className="mt-1 whitespace-pre-wrap">{msg.text}</p>
                     )}
-                    <p className="text-xs mt-1 opacity-75">
-                      {new Date(msg.createdAt).toLocaleTimeString(undefined, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+
+                    {/* เวลา */}
+                    <p className="text-[11px] mt-1 opacity-75">
+                      {msg.createdAt
+                        ? new Date(msg.createdAt).toLocaleTimeString(
+                            undefined,
+                            { hour: "2-digit", minute: "2-digit" }
+                          )
+                        : ""}
                     </p>
                   </div>
                 </div>
               );
             })}
+
             <div ref={messageEndRef} />
           </div>
-        ) : isGroupMessagesLoading && messages.length === 0 ? (
+        ) : isGroupMessagesLoading ? (
           <MessagesLoadingSkeleton />
         ) : (
           <NoGroupChatHistoryPlaceholder groupName={selectedGroup?.name} />
         )}
       </div>
 
-      <div className="pb-6 px-4 sm:px-6">
-        <div className="w-full">
-          <GroupMessageInput
-            groupId={selectedGroup?._id}
-            placeholder={`Message ${selectedGroup?.name || "group"}...`}
-          />
-        </div>
-      </div>
+      <GroupMessageInput
+        groupId={selectedGroup?._id}
+        placeholder={`Message ${selectedGroup?.name || "group"}...`}
+      />
     </>
   );
 }
