@@ -215,6 +215,12 @@ export const useGroupStore = create((set, get) => ({
     if (!group) return;
     set({ selectedGroup: group });
 
+    // เข้าห้อง socket ของกรุ๊ปนี้ เพื่อรับ newGroupMessage แบบ realtime
+    const socket = get()._ensureSocket();
+    if (socket && group?._id) {
+      socket.emit("joinGroupRoom", { groupId: group._id });
+    }
+
     // ถ้ายังไม่เคย fetch ข้อความ ก็ไปดึงมา
     const cached = get().groupMessages[group._id];
     if (!cached || cached.length === 0) {
@@ -392,6 +398,8 @@ export const useGroupStore = create((set, get) => ({
     // กันสมัครซ้ำ group เดิม
     if (get()._subscribedGroupIds?.has(groupId)) return;
 
+    socket.emit("joinGroupRoom", { groupId });
+
     // ลบ handler เดิมก่อนเสมอ แล้วค่อย on ใหม่ (กันซ้อน)
     socket.off("newGroupMessage");
     socket.off("user_typing_group");
@@ -455,6 +463,11 @@ export const useGroupStore = create((set, get) => ({
   unsubscribeGroupEvents: (groupId) => {
     const socket = get()._ensureSocket();
     if (!socket) return;
+
+    if (groupId) {
+      // ออกจากห้อง socket ของกรุ๊ปนี้
+      socket.emit("leaveGroupRoom", { groupId });
+    }
 
     const listeners = get()._listeners || {};
     if (listeners.onNewGroupMessage)

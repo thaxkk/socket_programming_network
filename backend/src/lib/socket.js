@@ -474,6 +474,17 @@ io.on("connection", (socket) => {
       });
     }
   });
+  
+  // ===== Room-only join/leave for group realtime =====
+  socket.on("joinGroupRoom", ({ groupId }) => {
+    if (!groupId) return;
+    socket.join(`group:${groupId}`);
+  });
+
+  socket.on("leaveGroupRoom", ({ groupId }) => {
+    if (!groupId) return;
+    socket.leave(`group:${groupId}`);
+  });
 
   // 1️⃣ ออกจากกรุ๊ป (ถ้าเป็นเจ้าของ → delete)
   socket.on("leaveGroup", async ({ groupId }) => {
