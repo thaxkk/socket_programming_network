@@ -1,5 +1,5 @@
 // src/components/MyGroupList.jsx
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useGroupStore } from "@/store/useGroupStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import GroupCard from "./GroupCard";
@@ -14,7 +14,7 @@ export default function MyGroupList() {
     joinGroup,
     bindGroupSocketEvents,
     leaveGroupOrDelete,
-    getGroupMembers, 
+    getGroupMembers,
     openGroup,
   } = useGroupStore();
 
@@ -28,18 +28,34 @@ export default function MyGroupList() {
   const handleShowMembers = (groupId) => {
     getGroupMembers(groupId);
   };
-
   const handleLeaveOrDelete = (groupId) => {
     leaveGroupOrDelete(groupId);
   };
-
   const handleOpen = (group) => {
     openGroup(group);
   };
-
   const handleJoin = (groupId) => {
     joinGroup(groupId);
   };
+
+  const getId = (v) => (typeof v === "string" ? v : v?._id);
+  const nameSort = (a, b) =>
+    (a?.name || "").localeCompare(b?.name || "", undefined, {
+      sensitivity: "base",
+    });
+
+  const sortedMyGroups = useMemo(() => {
+    const me = authUser?._id;
+    const owned = [];
+    const others = [];
+    for (const g of myGroups || []) {
+      if (getId(g?.createdBy) === me) owned.push(g);
+      else others.push(g);
+    }
+    owned.sort(nameSort);
+    others.sort(nameSort);
+    return [...owned, ...others];
+  }, [myGroups, authUser?._id]);
 
   return (
     <div className="space-y-4">
@@ -50,13 +66,13 @@ export default function MyGroupList() {
 
         {isMyGroupsLoading ? (
           <div className="text-xs text-neutral-500">Loading groups…</div>
-        ) : (myGroups || []).length === 0 ? (
+        ) : (sortedMyGroups || []).length === 0 ? (
           <div className="text-xs text-neutral-500">
             You haven’t joined any group yet.
           </div>
         ) : (
           <div className="space-y-3">
-            {(myGroups || []).map((g) => (
+            {sortedMyGroups.map((g) => (
               <GroupCard
                 key={g._id}
                 group={g}
