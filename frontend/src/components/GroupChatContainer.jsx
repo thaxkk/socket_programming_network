@@ -59,9 +59,9 @@ export default function GroupChatContainer() {
         onClose={() => setSelectedGroup(null)}
       />
 
-      <div className="flex-1 px-6 overflow-y-auto py-8">
+      <div className="flex-1 overflow-y-auto py-6 px-4 sm:px-6">
         {messages.length > 0 && !isGroupMessagesLoading ? (
-          <div className="max-w-3xl mx-auto space-y-6">
+          <div className="w-full space-y-6">
             {messages.map((msg) => {
               const isMine =
                 (typeof msg.senderId === "string" &&
@@ -117,8 +117,8 @@ export default function GroupChatContainer() {
         )}
       </div>
 
-      <div className="px-6 pb-6">
-        <div className="max-w-3xl mx-auto">
+      <div className="pb-6 px-4 sm:px-6">
+        <div className="w-full">
           <GroupMessageInput
             groupId={selectedGroup?._id}
             placeholder={`Message ${selectedGroup?.name || "group"}...`}

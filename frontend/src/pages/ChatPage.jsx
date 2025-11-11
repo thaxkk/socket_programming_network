@@ -41,12 +41,8 @@ function ChatPage() {
 
       {/* RIGHT SIDE */}
       <div className="flex-1 flex flex-col bg-white/40 backdrop-blur-sm">
-        {activeTab === "groups" ? (
-          selectedGroup ? (
-            <GroupChatContainer />
-          ) : (
-            <NoConversationPlaceholder />
-          )
+        {selectedGroup ? (
+          <GroupChatContainer />
         ) : selectedUser ? (
           <ChatContainer />
         ) : (

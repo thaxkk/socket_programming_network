@@ -8,8 +8,8 @@ import { useGroupStore } from "../store/useGroupStore";
 function ChatsList() {
   const { getMyChatPartners, chats, isUsersLoading, setSelectedUser } =
     useChatStore();
-  const { onlineUsers } = useAuthStore();
   const { setSelectedGroup } = useGroupStore();
+  const { onlineUsers } = useAuthStore();
 
   useEffect(() => {
     getMyChatPartners();
@@ -20,32 +20,36 @@ function ChatsList() {
 
   return (
     <>
-      {chats.map((chat) => (
-        <div
-          key={chat._id}
-          className="bg-[#8A522E]/20 p-4 rounded-lg cursor-pointer hover:bg-[#8A522E]/5 transition-colors"
-          onClick={() => {
-            setSelectedUser(chat);
-            setSelectedGroup(null);
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className={`avatar ${
-                onlineUsers.includes(chat._id) ? "online" : "offline"
-              }`}
-            >
-              <div className="size-12 rounded-full">
-                <img
-                  src={chat.profilePic || "/cocouser.png"}
-                  alt={chat.fullName}
-                />
+      <div className="space-y-2">
+        {chats.map((chat) => (
+          <div
+            key={chat._id}
+            className="bg-[#8A522E]/20 p-4 rounded-lg cursor-pointer hover:bg-[#8A522E]/5 transition-colors "
+            onClick={() => {
+              setSelectedUser(chat);
+              setSelectedGroup(null);
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar ${
+                  onlineUsers.includes(chat._id) ? "online" : "offline"
+                }`}
+              >
+                <div className="size-12 rounded-full">
+                  <img
+                    src={chat.profilePic || "/cocouser.png"}
+                    alt={chat.fullName}
+                  />
+                </div>
               </div>
+              <h4 className="text-black font-medium truncate">
+                {chat.fullName}
+              </h4>
             </div>
-            <h4 className="text-black font-medium truncate">{chat.fullName}</h4>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </>
   );
 }

@@ -1,87 +1,96 @@
 // src/components/GroupList.jsx
-import { useEffect } from "react";
-import { useGroupStore } from "../store/useGroupStore";
-import { useChatStore } from "../store/useChatStore";
+import { useEffect, useMemo } from "react";
+import { useGroupStore } from "@/store/useGroupStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import MembersModal from "./MemberModal";
+import GroupCard from "./GroupCard";
 
-import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
-import NoChatsFound from "./NoChatsFound";
-import CreateGroupButton from "./CreateGroupButton";
-
-function GroupList() {
+export default function GroupList() {
   const {
-    getAllGroups,
+    myGroups,
     allGroups,
+    isMyGroupsLoading,
     isAllGroupsLoading,
+    currentMembers,
+    currentMemberCount,
+    getMyGroups,
+    getAllGroups,
     joinGroup,
-    setSelectedGroup,
+    bindGroupSocketEvents,
+    leaveGroupOrDelete,
+    getGroupMembers,
+    openGroup,
   } = useGroupStore();
-  const { setSelectedUser } = useChatStore();
+
+  const authUser = useAuthStore((s) => s.authUser);
 
   useEffect(() => {
+    bindGroupSocketEvents();
+    getMyGroups();
     getAllGroups();
-  }, [getAllGroups]);
+  }, [bindGroupSocketEvents, getMyGroups, getAllGroups]);
 
-  if (isAllGroupsLoading) return <UsersLoadingSkeleton />;
-  if (!allGroups || allGroups.length === 0)
-    return <NoChatsFound message="No groups found" />;
+  const myGroupIdSet = useMemo(
+    () => new Set((myGroups || []).map((g) => g._id)),
+    [myGroups]
+  );
+
+  const handleShowMembers = (groupId) => {
+    getGroupMembers(groupId);
+    window.dispatchEvent(new CustomEvent("open-members-modal"));
+  };
+
+  const handleLeaveOrDelete = (groupId) => {
+    leaveGroupOrDelete(groupId);
+  };
+
+  const handleOpen = (group) => {
+    openGroup(group); 
+  };
+
+  const handleJoin = async (group) => {
+    joinGroup(group._id);
+  };
+
+  const loading = isMyGroupsLoading || isAllGroupsLoading;
+  const displayGroups =
+    allGroups && allGroups.length > 0 ? allGroups : myGroups || [];
+
+  const getId = (v) => (typeof v === "string" ? v : v?._id);
 
   return (
-    <>
-      {allGroups.map((group) => {
-        const count = group.memberCount ?? group.members?.length ?? 0;
-        const myId = String(useChatStore.getState()?.authUser?._id || "");
-        const joined = (group.members || []).some(
-          (m) => String(m?._id ?? m) === myId
-        );
+    <div className="space-y-4">
+      <section>
+        <h3 className="text-sm font-semibold text-neutral-700 mb-2">Groups</h3>
 
-        return (
-          <div
-            key={group._id}
-            className="bg-[#8A522E]/20 p-4 rounded-lg cursor-pointer hover:bg-[#8A522E]/5 transition-colors"
-            onClick={() => {
-              setSelectedUser(null);
-              if (joined) setSelectedGroup(group);
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-[#8A522E]/70 flex items-center justify-center text-white font-semibold">
-                {group.name?.charAt(0).toUpperCase() || "G"}
-              </div>
-              <div className="flex-1">
-                <h4 className="text-black font-medium truncate">
-                  {group.name || group.groupName || "Unnamed Group"}
-                </h4>
-                <p className="text-sm text-gray-600">👥 {count} members</p>
-              </div>
-              <div className="flex-shrink-0">
-                {joined ? (
-                  <button
-                    className="px-3 py-1 rounded-md bg-[#8A522E] text-white text-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedGroup(group);
-                    }}
-                  >
-                    Open
-                  </button>
-                ) : (
-                  <button
-                    className="px-3 py-1 rounded-md border text-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      joinGroup(group._id);
-                    }}
-                  >
-                    Join
-                  </button>
-                )}
-              </div>
-            </div>
+        {loading ? (
+          <div className="text-xs text-neutral-500">Loading groups…</div>
+        ) : (displayGroups || []).length === 0 ? (
+          <div className="text-xs text-neutral-500">No groups found.</div>
+        ) : (
+          <div className="space-y-3">
+            {(displayGroups || []).map((g) => {
+              const isOwner = getId(g?.createdBy) === authUser?._id;
+              const isMember = isOwner || myGroupIdSet.has(g._id);
+              return (
+                <GroupCard
+                  key={g._id}
+                  group={g}
+                  currentUserId={authUser?._id}
+                  onOpen={handleOpen}
+                  onShowMembers={handleShowMembers}
+                  onLeaveOrDelete={handleLeaveOrDelete}
+                  onJoin={() => handleJoin(g)}
+                  forceIsMember={isMember}
+                  forceIsOwner={isOwner}
+                />
+              );
+            })}
           </div>
-        );
-      })}
-    </>
+        )}
+      </section>
+
+      <MembersModal members={currentMembers} count={currentMemberCount} />
+    </div>
   );
 }
-
-export default GroupList;
