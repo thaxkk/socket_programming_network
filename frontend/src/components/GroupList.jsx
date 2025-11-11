@@ -37,7 +37,6 @@ export default function GroupList() {
 
   const handleShowMembers = (groupId) => {
     getGroupMembers(groupId);
-    window.dispatchEvent(new CustomEvent("open-members-modal"));
   };
 
   const handleLeaveOrDelete = (groupId) => {
@@ -45,7 +44,7 @@ export default function GroupList() {
   };
 
   const handleOpen = (group) => {
-    openGroup(group); 
+    openGroup(group);
   };
 
   const handleJoin = async (group) => {
@@ -83,14 +82,14 @@ export default function GroupList() {
                   onJoin={() => handleJoin(g)}
                   forceIsMember={isMember}
                   forceIsOwner={isOwner}
+                  members={currentMembers}
+                  memberCount={currentMemberCount}
                 />
               );
             })}
           </div>
         )}
       </section>
-
-      <MembersModal members={currentMembers} count={currentMemberCount} />
     </div>
   );
 }

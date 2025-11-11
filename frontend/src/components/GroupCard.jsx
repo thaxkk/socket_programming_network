@@ -1,8 +1,10 @@
-// src/components/GroupCard.jsx
+// src/components/GroupCard.jsx (เฉพาะส่วนที่ใช้ Popover หลังแยกไฟล์แล้ว)
 import { useEffect, useState } from "react";
 import { Users as UsersIcon, LogOut, Trash2 } from "lucide-react";
 import { useGroupStore } from "../store/useGroupStore";
 import { useChatStore } from "../store/useChatStore";
+import MembersPopover from "./MembersPopover";
+import { Button } from "@/components/ui/button";
 
 function getId(val) {
   return typeof val === "string" ? val : val?._id;
@@ -21,15 +23,18 @@ export default function GroupCard({
   group,
   currentUserId,
   onOpen,
-  onShowMembers,
+  onShowMembers, // จะถูกเรียกเวลา popover เปิด (ควร return Promise)
   onLeaveOrDelete,
   onJoin,
   forceIsMember,
   forceIsOwner,
+  members, // currentMembers จาก store
+  memberCount, // currentMemberCount จาก store
 }) {
   const [joining, setJoining] = useState(false);
   const [justJoined, setJustJoined] = useState(false);
   const [justLeft, setJustLeft] = useState(false);
+
   const { setSelectedUser } = useChatStore();
   const { setSelectedGroup } = useGroupStore();
 
@@ -46,7 +51,6 @@ export default function GroupCard({
     setJustLeft(false);
   }, [isMember]);
 
-  // ใช้สถานะสมาชิกที่รวม local flags
   const effectiveMember = (isMember || justJoined) && !justLeft;
   const canOpen = effectiveMember;
 
@@ -57,20 +61,6 @@ export default function GroupCard({
     setSelectedUser(null);
   };
 
-  const handleMembers = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (!group?._id) return;
-    onShowMembers?.(group._id);
-  };
-
-  // const handleLeaveOrDelete = (e) => {
-  //   e.stopPropagation();
-  //   e.preventDefault();
-  //   if (!group?._id) return;
-  //   onLeaveOrDelete?.(group._id, { isOwner });
-  // };
-
   const handleLeaveOrDelete = async (e) => {
     e.stopPropagation();
     e.preventDefault();
@@ -78,15 +68,13 @@ export default function GroupCard({
     const ok = await onLeaveOrDelete?.(group._id, { isOwner });
     if (ok !== false) {
       setJustLeft(true);
-      setJustJoined(false); // ให้ UI สลับเป็น Join ทันที
+      setJustJoined(false);
     }
   };
-
   const stopAll = (e) => {
     e.stopPropagation();
     e.preventDefault();
   };
-
   const handleJoin = async (e) => {
     e.stopPropagation();
     e.preventDefault();
@@ -119,16 +107,16 @@ export default function GroupCard({
       </div>
 
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={handleMembers}
-          onPointerDown={stopAll}
-          className="px-2 py-1 rounded-lg border text-xs hover:bg-neutral-100"
-          title="Show members"
-        >
-          <UsersIcon className="inline w-4 h-4 mr-1" />
-          Members
-        </button>
+        <MembersPopover
+          members={members}
+          count={memberCount}
+          side="top"
+          align="start"
+          sideOffset={8}
+          onOpen={() => {
+            if (group?._id) return onShowMembers?.(group._id); // ควร return Promise เพื่อให้ Popover รอโหลด
+          }}
+        />
 
         {effectiveMember ? (
           <button
@@ -158,7 +146,7 @@ export default function GroupCard({
           <button
             type="button"
             onClick={handleJoin}
-            onPointerDown={stopAll} // ✅ กัน pointerdown ด้วย
+            onPointerDown={stopAll}
             className="px-2 py-1 rounded-lg border text-xs hover:bg-neutral-100"
             title="Join group"
             disabled={joining}

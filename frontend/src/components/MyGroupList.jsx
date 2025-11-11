@@ -1,7 +1,7 @@
+// src/components/MyGroupList.jsx
 import { useEffect } from "react";
 import { useGroupStore } from "@/store/useGroupStore";
 import { useAuthStore } from "@/store/useAuthStore";
-import MembersModal from "./MemberModal";
 import GroupCard from "./GroupCard";
 
 export default function MyGroupList() {
@@ -14,7 +14,7 @@ export default function MyGroupList() {
     joinGroup,
     bindGroupSocketEvents,
     leaveGroupOrDelete,
-    getGroupMembers,
+    getGroupMembers, 
     openGroup,
   } = useGroupStore();
 
@@ -27,8 +27,6 @@ export default function MyGroupList() {
 
   const handleShowMembers = (groupId) => {
     getGroupMembers(groupId);
-    const ev = new CustomEvent("open-members-modal");
-    window.dispatchEvent(ev);
   };
 
   const handleLeaveOrDelete = (groupId) => {
@@ -67,13 +65,13 @@ export default function MyGroupList() {
                 onShowMembers={handleShowMembers}
                 onLeaveOrDelete={handleLeaveOrDelete}
                 onJoin={handleJoin}
+                members={currentMembers}
+                memberCount={currentMemberCount}
               />
             ))}
           </div>
         )}
       </section>
-
-      <MembersModal members={currentMembers} count={currentMemberCount} />
     </div>
   );
 }
