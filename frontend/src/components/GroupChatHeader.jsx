@@ -10,7 +10,7 @@ export default function GroupChatHeader({ group, typingText = "", onClose }) {
     >
       <div className="flex items-center space-x-3">
         {/* Avatar / Icon */}
-        <div className="w-12 h-12 rounded-full bg-[#8A522E]/70 flex items-center justify-center text-white font-semibold">
+        <div className="w-10 h-10 rounded-full bg-[#8A522E]/70 flex items-center justify-center text-white font-semibold">
           {group?.name?.charAt(0).toUpperCase() || "G"}
         </div>
 
