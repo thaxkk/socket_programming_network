@@ -95,7 +95,7 @@ export default function GroupCard({
         ${
           isOwner
             ? "bg-red-50 border-red-200 hover:border-red-300"
-            : "bg-emerald-50 border-emerald-200 hover:border-emerald-300"
+            : "bg-[#E0D4C9] border-neutral-200 hover:border-neutral-300"
         }`}
     >
       <div className="min-w-0 mb-3">
@@ -126,7 +126,7 @@ export default function GroupCard({
             className={`px-2 py-1 rounded-lg text-xs text-white ${
               isOwner
                 ? "bg-red-600 hover:bg-red-700"
-                : "bg-orange-500 hover:bg-orange-600"
+                : "bg-[#8A6240] hover:bg-[#7A5536]"
             }`}
             title={isOwner ? "Delete group" : "Leave group"}
           >
