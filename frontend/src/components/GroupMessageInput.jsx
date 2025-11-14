@@ -26,6 +26,10 @@ export default function GroupMessageInput({
   const [triggerWord, setTriggerWord] = useState("");
 
   const fileInputRef = useRef(null);
+  const coconutSound = new Audio("/sounds/coconut.mp3");
+  const loveSound = new Audio("/sounds/love.mp3");
+  const fireSound = new Audio("/sounds/fire.mp3");
+  const flowerSound = new Audio("/sounds/flower.mp3");
 
   // เสียงพิมพ์แบบเดียวกับ DM
   const { playRandomKeyStrokeSound } = useKeyboardSound();
@@ -65,10 +69,27 @@ export default function GroupMessageInput({
 
     // fun effects
     const word = trimmed.toLowerCase();
-    if (word.includes("coconut")) setTriggerWord("coconut");
-    else if (word.includes("flower")) setTriggerWord("flower");
-    else if (word.includes("fire")) setTriggerWord("fire");
-    else if (word.includes("love")) setTriggerWord("love");
+    if (word.includes("coconut")) {
+      setTriggerWord("coconut");
+      coconutSound.currentTime = 0;
+      coconutSound.play().catch(err => console.log(err));
+    }
+    else if (word.includes("flower")) {
+      setTriggerWord("flower");
+      flowerSound.currentTime = 0;
+      flowerSound.play().catch(err => console.log(err));
+    }
+    else if (word.includes("fire")) {
+      setTriggerWord("fire");
+      fireSound.currentTime = 0;
+      fireSound.play().catch(err => console.log(err));
+    }
+    else if (word.includes("love")) {
+      setTriggerWord("love");
+      loveSound.currentTime = 0;
+      loveSound.play().catch(err => console.log(err));
+
+    }
     else return;
 
     setTimeout(() => setTriggerWord(""), 500);

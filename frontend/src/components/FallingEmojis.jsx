@@ -13,10 +13,8 @@ export default function FallingEmojis({ triggerWord }) {
 
   useEffect(() => {
     if (triggerWord) {
-      // เลือก emoji ที่ตรง keyword ถ้าไม่มีใช้ default
       const emojiList = emojiMap[triggerWord.toLowerCase()] || ["✨"];
 
-      // สร้างชุด emoji แบบสุ่ม
       const newEmojis = Array.from({ length: 12 }).map((_, i) => ({
         id: Date.now() + i,
         left: Math.random() * 100,
