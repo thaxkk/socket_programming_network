@@ -100,7 +100,7 @@ export default function GroupCard({
     >
       <div className="min-w-0 mb-3">
         <div className="font-medium truncate">{group.name}</div>
-        <div className="text-xs text-neutral-600">
+        <div className="text-xs text-neutral-600 ">
           {group.members?.length ?? group.memberCount ?? 0} member
           {(group.members?.length ?? group.memberCount ?? 0) === 1 ? "" : "s"}
         </div>
@@ -147,7 +147,7 @@ export default function GroupCard({
             type="button"
             onClick={handleJoin}
             onPointerDown={stopAll}
-            className="px-2 py-1 rounded-lg border text-xs hover:bg-neutral-100"
+            className="px-2 py-1 rounded-lg border bg-white text-xs hover:bg-neutral-100"
             title="Join group"
             disabled={joining}
           >
