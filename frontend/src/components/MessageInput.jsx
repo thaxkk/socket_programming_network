@@ -5,11 +5,19 @@ import toast from "react-hot-toast";
 import { ImageIcon, SendIcon, XIcon } from "lucide-react";
 import FallingEmojis from "./FallingEmojis";
 
+
 function MessageInput() {
   const { playRandomKeyStrokeSound } = useKeyboardSound();
   const [text, setText] = useState("");
   const [imagePreview, setImagePreview] = useState(null);
   const [triggerWord, setTriggerWord] = useState("");
+
+  const coconutSound = new Audio("/sounds/coconut.mp3");
+  const loveSound = new Audio("/sounds/love.mp3");
+  const fireSound = new Audio("/sounds/fire.mp3");
+  const flowerSound = new Audio("/sounds/flower.mp3");
+
+
 
   const fileInputRef = useRef(null);
 
@@ -29,10 +37,27 @@ function MessageInput() {
     if (fileInputRef.current) fileInputRef.current.value = "";
 
     const word = text.toLowerCase();
-    if (word.includes("coconut")) setTriggerWord("coconut");
-    else if (word.includes("flower")) setTriggerWord("flower");
-    else if (word.includes("fire")) setTriggerWord("fire");
-    else if (word.includes("love")) setTriggerWord("love");
+    if (word.includes("coconut")) {
+      setTriggerWord("coconut");
+      coconutSound.currentTime = 0;
+      coconutSound.play().catch(err => console.log(err));
+    }
+    else if (word.includes("flower")) {
+      setTriggerWord("flower");
+      flowerSound.currentTime = 0;
+      flowerSound.play().catch(err => console.log(err));
+    }
+    else if (word.includes("fire")) {
+      setTriggerWord("fire");
+      fireSound.currentTime = 0;
+      fireSound.play().catch(err => console.log(err));
+    }
+    else if (word.includes("love")) {
+      setTriggerWord("love");
+      loveSound.currentTime = 0;
+      loveSound.play().catch(err => console.log(err));
+
+    }
     else return;
 
     setTimeout(() => setTriggerWord(""), 500);
