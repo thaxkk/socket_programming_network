@@ -634,7 +634,6 @@ io.on("connection", (socket) => {
   // ============================================
   // DISCONNECT EVENT
   // ============================================
-
   socket.on("disconnect", () => {
     console.log(`User ${userFullName} disconnected`, socket.id);
 
