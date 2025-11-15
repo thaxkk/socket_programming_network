@@ -20,17 +20,7 @@ const NoGroupChatHistoryPlaceholder = ({ groupName }) => {
         <div className="h-px w-32 bg-gradient-to-r from-transparent via-[#8A522E]/40 to-transparent mx-auto"></div>
       </div>
 
-      <div className="flex flex-wrap gap-2 justify-center">
-        <button className="px-4 py-2 text-xs font-medium text-[#8A522E] bg-[#8A522E]/10 rounded-full hover:bg-[#8A522E]/20 transition-colors">
-          👋 Say hello to everyone
-        </button>
-        <button className="px-4 py-2 text-xs font-medium text-[#8A522E] bg-[#8A522E]/10 rounded-full hover:bg-[#8A522E]/20 transition-colors">
-          💡 Share an idea
-        </button>
-        <button className="px-4 py-2 text-xs font-medium text-[#8A522E] bg-[#8A522E]/10 rounded-full hover:bg-[#8A522E]/20 transition-colors">
-          📢 Make an announcement
-        </button>
-      </div>
+      
     </div>
   );
 };

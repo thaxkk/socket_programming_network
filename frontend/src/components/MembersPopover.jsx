@@ -88,7 +88,7 @@ export default function MembersPopover({
             e.stopPropagation();
             e.preventDefault();
           }}
-          className={`px-2 py-1 rounded-lg border text-xs hover:bg-neutral-100 ${className}`}
+          className={`px-2 py-1 rounded-lg border text-xs bg-white hover:bg-neutral-100 ${className}`}
           title="Show members"
         >
           <UsersIcon className="inline w-4 h-4 mr-1" />
